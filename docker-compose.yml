@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aegis-ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+
+  ide:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aegis-ide
+    ports:
+      # Bound strictly to 127.0.0.1 to prevent unauthorized external access
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:5000:5000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      - AEGIS_MODEL=qwen2.5-coder:7b
+      - PLAYBOOK=on
+    depends_on:
+      - ollama
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
