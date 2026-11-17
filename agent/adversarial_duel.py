@@ -680,6 +680,21 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+        # 3. Ingest into Verified Playbook
+        try:
+            from agent.playbook import PlaybookManager
+            pm = PlaybookManager()
+            if pm.is_enabled():
+                pm.add_verified_entry(
+                    vuln_type=breach.get("type", "General"),
+                    pattern_desc=breach.get("details", "Defensive mitigation"),
+                    safe_snippet=self.builder.last_patch_info.get("diff", "")[:300] if self.builder.last_patch_info else "",
+                    poc=poc_data,
+                    model=self.builder.model
+                )
+        except Exception:
+            pass
+
     def conduct_duel(self, project_dir: str, restart_server_callback) -> bool:
         """
         Executes the duel rounds.

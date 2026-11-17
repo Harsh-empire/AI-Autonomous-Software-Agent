@@ -32,6 +32,7 @@ from agent.hacker_suite_generator import scan_flask_endpoints, ADVERSARIAL_PAYLO
 from agent.run_adversarial_arena import find_python_executable
 from agent.main import analyze_requirements, create_project_structure, generate_code
 from agent.llm_client import get_llm_client, OLLAMA_BASE_URL
+from agent.playbook import PlaybookManager
 
 
 app = FastAPI(title="AEGIS Dual-AI Web IDE")
@@ -332,6 +333,37 @@ async def trigger_chaos_attack(req: ChaosAttackRequest):
         restart_target_server(proj_dir)
         return {"breach": breach, "patched": True, "file": "app.py", "diff": diff_content}
     return {"breach": breach, "patched": False}
+
+
+# =============================================================================
+# DEFENSE PLAYBOOK ENDPOINTS
+# =============================================================================
+
+@app.get("/api/playbook")
+async def get_playbook_entries():
+    """Lists verified defense playbook entries."""
+    pm = PlaybookManager()
+    return {"entries": pm.list_entries(include_disabled=True), "enabled": pm.is_enabled()}
+
+
+@app.post("/api/playbook/{entry_id}/toggle")
+async def toggle_playbook_entry(entry_id: str, enabled: bool = Query(...)):
+    """Enables or disables a verified playbook pattern."""
+    pm = PlaybookManager()
+    success = pm.set_entry_enabled(entry_id, enabled)
+    if not success:
+        raise HTTPException(status_code=404, detail="Playbook entry not found")
+    return {"status": "updated", "id": entry_id, "enabled": enabled}
+
+
+@app.delete("/api/playbook/{entry_id}")
+async def delete_playbook_entry(entry_id: str):
+    """Deletes a playbook entry permanently."""
+    pm = PlaybookManager()
+    success = pm.delete_entry(entry_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Playbook entry not found")
+    return {"status": "deleted", "id": entry_id}
 
 
 # =============================================================================

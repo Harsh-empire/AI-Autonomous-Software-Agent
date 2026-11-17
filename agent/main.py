@@ -203,6 +203,16 @@ def create_project_structure(plan):
 
 def generate_code(file_path, plan):
 
+    playbook_prompt = ""
+    try:
+        from agent.playbook import PlaybookManager
+        pm = PlaybookManager()
+        if pm.is_enabled():
+            relevant = pm.get_relevant_entries(f"{file_path} {plan.get('description', '')}", top_k=3)
+            playbook_prompt = pm.format_playbook_for_prompt(relevant)
+    except Exception:
+        pass
+
     system_prompt = f"""
 You are the Code Generator of an Autonomous Software Development Agent.
 
@@ -211,7 +221,7 @@ Generate the COMPLETE source code for one requested file.
 PROJECT PLAN:
 
 {json.dumps(plan, indent=4)}
-
+{playbook_prompt}
 IMPORTANT RULES:
 
 1. Generate ONLY source code.
