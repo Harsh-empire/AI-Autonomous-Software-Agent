@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow // Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="dashboard-container">
+        <!-- Top Nav Bar -->
+        <header class="dash-navbar">
+            <div class="brand">
+                <span class="logo-emoji">🚀</span>
+                <span class="logo-text">TaskFlow</span>
+            </div>
+            <div class="user-meta">
+                <span class="user-badge">👤 {{ session.get('username', 'User') }}</span>
+                <a href="{{ url_for('logout') }}" class="btn-logout">Logout 🚪</a>
+            </div>
+        </header>
+
+        <!-- Flash Messages & Toasts -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-container">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            <span class="alert-icon">
+                                {% if category == 'error' %}⚠️{% elif category == 'success' %}✅{% else %}ℹ️{% endif %}
+                            </span>
+                            <span class="alert-text">{{ message }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <!-- Add Task Input Bar -->
+        <div class="add-task-card">
+            <form action="{{ url_for('add_task') }}" method="POST" class="task-form">
+                <div class="input-with-button">
+                    <span class="task-input-icon">📝</span>
+                    <input type="text" name="title" placeholder="What needs to be done?..." required autofocus>
+                    <button type="submit" class="btn-add-task">
+                        <span>Add Task</span>
+                        <span>➕</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Task List Header & Counters -->
+        <div class="task-section-header">
+            <h3>Your Tasks</h3>
+            <span class="task-count">{{ tasks|length }} Total</span>
+        </div>
+
+        <!-- Task List Items -->
+        <div class="tasks-list">
+            {% if tasks %}
+                {% for task in tasks %}
+                    <div class="task-card {% if task.completed %}completed{% endif %}">
+                        <div class="task-left">
+                            <form action="{{ url_for('complete_task', task_id=task.id) }}" method="POST" style="margin: 0;">
+                                <button type="submit" class="btn-check" title="Toggle status">
+                                    {% if task.completed %}✅{% else %}⭕{% endif %}
+                                </button>
+                            </form>
+                            <span class="task-title">{{ task.title }}</span>
+                        </div>
+                        <div class="task-actions">
+                            <form action="{{ url_for('delete_task', task_id=task.id) }}" method="POST" style="margin: 0;">
+                                <button type="submit" class="btn-delete" title="Delete task">🗑️</button>
+                            </form>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <span class="empty-icon">🎉</span>
+                    <h4>No tasks yet!</h4>
+                    <p>Type a task description above and click Add to get started.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

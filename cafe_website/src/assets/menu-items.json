@@ -1,0 +1,72 @@
+[
+    {
+        "id": 1,
+        "name": "Classic Espresso",
+        "description": "A rich and bold espresso shot.",
+        "price": 3.50,
+        "image": "espresso.jpg"
+    },
+    {
+        "id": 2,
+        "name": "Cappuccino",
+        "description": "A creamy latte with a layer of steamed milk and a sprinkle of cocoa powder.",
+        "price": 4.00,
+        "image": "cappuccino.jpg"
+    },
+    {
+        "id": 3,
+        "name": "Latte",
+        "description": "A smooth blend of espresso and steamed milk.",
+        "price": 3.75,
+        "image": "latte.jpg"
+    },
+    {
+        "id": 4,
+        "name": "Americano",
+        "description": "Espresso diluted with hot water.",
+        "price": 3.25,
+        "image": "americano.jpg"
+    },
+    {
+        "id": 5,
+        "name": "Mocha",
+        "description": "Espresso, steamed milk, and dark chocolate syrup.",
+        "price": 4.50,
+        "image": "mocha.jpg"
+    },
+    {
+        "id": 6,
+        "name": "Espresso Macchiato",
+        "description": "Espresso with a dollop of steamed milk.",
+        "price": 4.25,
+        "image": "macchiato.jpg"
+    },
+    {
+        "id": 7,
+        "name": "Caramel Macchiato",
+        "description": "Espresso with a dollop of steamed milk and caramel sauce.",
+        "price": 4.75,
+        "image": "caramel_macchiato.jpg"
+    },
+    {
+        "id": 8,
+        "name": "Flat White",
+        "description": "A smooth blend of espresso and steamed milk with a fine layer of foam.",
+        "price": 4.50,
+        "image": "flat_white.jpg"
+    },
+    {
+        "id": 9,
+        "name": "Affogato",
+        "description": "Espresso served over vanilla ice cream.",
+        "price": 5.00,
+        "image": "affogato.jpg"
+    },
+    {
+        "id": 10,
+        "name": "Espresso Con Panna",
+        "description": "Espresso with a dollop of whipped cream.",
+        "price": 4.75,
+        "image": "espresso_con_panna.jpg"
+    }
+]

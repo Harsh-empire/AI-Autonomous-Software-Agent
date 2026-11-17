@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopping Cart</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Modern Cafe</h1>
+        <nav>
+            <ul>
+                <li><a href="{{ url_for('index') }}">Home</a></li>
+                <li><a href="{{ url_for('menu') }}">Menu</a></li>
+                <li><a href="{{ url_for('cart') }}">Cart</a></li>
+                <li><a href="{{ url_for('checkout') }}">Checkout</a></li>
+                {% if current_user.is_authenticated %}
+                    <li><a href="{{ url_for('logout') }}">Logout</a></li>
+                {% else %}
+                    <li><a href="{{ url_for('login') }}">Login</a></li>
+                    <li><a href="{{ url_for('register') }}">Register</a></li>
+                {% endif %}
+            </ul>
+        </nav>
+    </header>
+    <main>
+        <h2>Shopping Cart</h2>
+        {% if cart_items %}
+            <ul>
+                {% for item in cart_items %}
+                    <li>
+                        {{ item.coffee.name }} - {{ item.quantity }} x ${{ item.coffee.price }} = ${{ item.total_price }}
+                        <form action="{{ url_for('remove_from_cart', item_id=item.id) }}" method="post">
+                            <button type="submit">Remove</button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+            <h3>Total: ${{ total_price }}</h3>
+            <a href="{{ url_for('checkout') }}" class="btn btn-primary">Proceed to Checkout</a>
+        {% else %}
+            <p>Your cart is empty.</p>
+        {% endif %}
+    </main>
+    <footer>
+        <p>&copy; 2023 Modern Cafe. All rights reserved.</p>
+    </footer>
+    <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+</body>
+</html>

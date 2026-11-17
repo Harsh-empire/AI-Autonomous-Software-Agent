@@ -1,0 +1,28 @@
+{
+  "name": "cafe-website",
+  "version": "1.0.0",
+  "description": "A fully functional cafe website",
+  "main": "server.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview",
+    "test:home": "npm run build && npm run serve && open http://localhost:3000 && echo 'Check if the home page loads correctly'",
+    "test:menu": "npm run build && npm run serve && open http://localhost:3000/menu && echo 'Check if the menu page displays all items'",
+    "test:reservation": "npm run build && npm run serve && open http://localhost:3000/reservations && echo 'Check if the reservation form submits successfully'",
+    "test:contact": "npm run build && npm run serve && open http://localhost:3000/contact && echo 'Check if the contact form submits successfully'",
+    "test:admin": "npm run build && npm run serve && open http://localhost:3000/admin && echo 'Check if the admin panel is accessible'"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "nodemailer": "^6.7.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^2.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.4.2",
+    "vite": "^4.0.0"
+  }
+}

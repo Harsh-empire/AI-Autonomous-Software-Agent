@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AEGIS // Adversarial Dual-AI Platform</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="dark-theme">
+
+    <!-- =========================================================================
+         VIEW 1: PUBLIC LANDING PAGE (Lovable-Style Hero)
+         ========================================================================= -->
+    <div id="view-landing" class="view-screen">
+        <!-- Landing Header -->
+        <header class="landing-header">
+            <div class="brand-container">
+                <div class="brand-badge-icon">🛡️</div>
+                <span class="brand-wordmark">Aegis</span>
+            </div>
+            <nav class="landing-nav">
+                <a href="#features">Solutions</a>
+                <a href="#community">Community</a>
+                <a href="#pricing">Enterprise</a>
+                <a href="#security">Security</a>
+            </nav>
+            <div class="landing-auth-buttons">
+                <button class="btn-ghost btn-open-login">Log in</button>
+                <button class="btn-solid btn-open-login">Get started</button>
+            </div>
+        </header>
+
+        <!-- Landing Hero Stage -->
+        <main class="landing-hero">
+            <div class="hero-ambient-glow"></div>
+            <div class="hero-content">
+                <h1 class="hero-title">Build something <span class="gradient-text">Bulletproof</span></h1>
+                <p class="hero-subtitle">Bring a new product, internal tool, or entire company to life with Good Cop & Bad Cop Dual-AI engineering.</p>
+
+                <!-- Floating Central Prompt Pill -->
+                <div class="hero-prompt-card">
+                    <div class="prompt-input-row">
+                        <button class="btn-pill-icon" title="Add attachments or context">+</button>
+                        <input type="text" id="landing-prompt-input" placeholder="Ask Aegis to create a cafe website with checkout and payments..." autocomplete="off">
+                        <div class="prompt-actions-right">
+                            <select class="mini-model-select model-picker-sync">
+                                <option value="qwen2.5-coder:7b">⚡ qwen2.5-coder:7b (Local)</option>
+                                <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash</option>
+                                <option value="claude-3-5-sonnet">🧠 Claude 3.5 Sonnet</option>
+                                <option value="gpt-4o">🌐 GPT-4o</option>
+                            </select>
+                            <button class="btn-pill-submit" id="landing-prompt-submit">
+                                <span>Build</span>
+                                <span class="sparkle">✦</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Template Suggestion Chips -->
+                <div class="hero-chips">
+                    <button class="chip-item" data-prompt="Build a modern cafe website with coffee menu, interactive cart, and online checkout payment options">☕ Cafe with Online Checkout</button>
+                    <button class="chip-item" data-prompt="Build a sleek personal finance tracker with income, expenses, and budget charts">📊 Finance Dashboard</button>
+                    <button class="chip-item" data-prompt="Build an authenticated task management system with user profiles and categories">📝 TaskFlow System</button>
+                    <button class="chip-item" data-prompt="Build an e-commerce clothing store with product catalog, cart, and discount codes">🛍️ E-Commerce Store</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- =========================================================================
+         VIEW 2: LOGGED-IN DASHBOARD (Lovable-Style Dashboard: "What's on your mind, Harsh?")
+         ========================================================================= -->
+    <div id="view-dashboard" class="view-screen">
+        <div class="dashboard-layout">
+            <!-- Left Navigation Sidebar -->
+            <aside class="dash-sidebar">
+                <!-- Workspace Switcher -->
+                <div class="workspace-pill-dropdown">
+                    <div class="workspace-avatar">H</div>
+                    <span class="workspace-name">Harsh's Aegis</span>
+                    <span class="dropdown-chevron">▾</span>
+                </div>
+
+                <!-- Main Nav Links -->
+                <nav class="sidebar-menu">
+                    <button class="nav-item active" data-view="dashboard">
+                        <span class="nav-icon">🏠</span>
+                        <span>Dashboard</span>
+                    </button>
+                    <button class="nav-item" data-action="open-studio">
+                        <span class="nav-icon">⚔️</span>
+                        <span>Adversarial Studio</span>
+                    </button>
+                    <button class="nav-item" data-action="search">
+                        <span class="nav-icon">🔍</span>
+                        <span>Search</span>
+                    </button>
+                    <button class="nav-item" data-action="connectors">
+                        <span class="nav-icon">🔌</span>
+                        <span>Connectors</span>
+                    </button>
+                </nav>
+
+                <!-- Projects Section -->
+                <div class="sidebar-section">
+                    <span class="sidebar-section-title">Projects</span>
+                    <button class="sub-nav-item active"><span class="bullet">◇</span> All projects</button>
+                    <button class="sub-nav-item"><span class="bullet">◇</span> My projects</button>
+                    <button class="sub-nav-item"><span class="bullet">◇</span> Shared projects</button>
+                </div>
+
+                <!-- Recents Section -->
+                <div class="sidebar-section">
+                    <span class="sidebar-section-title">Recents</span>
+                    <div class="recents-list" id="dashboard-recents-list">
+                        <button class="recent-item" data-project="simple_task_management_app">
+                            <span class="recent-icon">🚀</span>
+                            <span>TaskFlow Dashboard</span>
+                        </button>
+                        <button class="recent-item" data-project="simple_task_management_web_app">
+                            <span class="recent-icon">💻</span>
+                            <span>AI Architect Hub</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bottom User Card -->
+                <div class="sidebar-footer">
+                    <div class="upgrade-banner">
+                        <div class="upgrade-top">
+                            <span class="upgrade-title">Dual-AI Pro</span>
+                            <span class="bolt-icon">⚡</span>
+                        </div>
+                        <p>Unlock infinite automated hacker rounds</p>
+                    </div>
+                    <div class="user-profile-bar">
+                        <div class="user-avatar-circle">H</div>
+                        <div class="user-info-text">
+                            <span class="user-display-name">Harsh</span>
+                            <span class="user-email">harsh@aegis.ai</span>
+                        </div>
+                        <button class="btn-logout-icon" title="Logout">🚪</button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Dashboard Center Stage -->
+            <main class="dash-stage">
+                <div class="dash-ambient-glow"></div>
+                <div class="dash-stage-content">
+                    <!-- Notification Banner -->
+                    <div class="pill-announcement">
+                        <div class="tool-icons-cluster">
+                            <span>🤖</span><span>🛠️</span><span>😈</span>
+                        </div>
+                        <span class="pill-announcement-text">Good Cop (Builder) & Bad Cop (Hacker) active</span>
+                        <span class="pill-arrow">→</span>
+                    </div>
+
+                    <!-- Greeting Heading -->
+                    <h1 class="dash-hero-title">What's on your mind, <span class="highlight-name">Harsh</span>?</h1>
+
+                    <!-- Central Floating Prompt Box -->
+                    <div class="dash-prompt-card">
+                        <textarea id="dashboard-prompt-input" placeholder="Ask Aegis to create a cafe website in which all the things are included like checkout payment options everything..." rows="3"></textarea>
+                        <div class="dash-prompt-bar-bottom">
+                            <div class="prompt-bar-left">
+                                <button class="btn-bar-action" title="Add attachments">+</button>
+                                <div class="model-select-capsule">
+                                    <span class="capsule-icon">🤖</span>
+                                    <select class="inline-model-select model-picker-sync" id="dash-model-select">
+                                        <option value="qwen2.5-coder:7b">⚡ qwen2.5-coder:7b (Local)</option>
+                                        <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash</option>
+                                        <option value="claude-3-5-sonnet">🧠 Claude 3.5 Sonnet</option>
+                                        <option value="gpt-4o">🌐 GPT-4o</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button id="btn-dash-create" class="btn-submit-action">
+                                <span>Build Application</span>
+                                <span class="arrow">✦</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Quick Suggestions -->
+                    <div class="dash-quick-suggestions">
+                        <button class="quick-chip" data-prompt="Build a modern cafe website in which all the things are included like coffee menu, cart, and checkout payment options">
+                            <span class="chip-emoji">☕</span>
+                            <span>Cafe Website with Checkout & Payments</span>
+                        </button>
+                        <button class="quick-chip" data-prompt="Build a personal portfolio website with projects showcase and contact form">
+                            <span class="chip-emoji">💼</span>
+                            <span>Developer Portfolio & Showcase</span>
+                        </button>
+                        <button class="quick-chip" data-prompt="Build a task management kanban board with drag and drop and categories">
+                            <span class="chip-emoji">📋</span>
+                            <span>Interactive Kanban Board</span>
+                        </button>
+                    </div>
+
+                    <!-- Projects Grid Section -->
+                    <section class="dash-projects-section">
+                        <div class="section-tabs-bar">
+                            <div class="tabs-group">
+                                <button class="project-tab active">My projects</button>
+                                <button class="project-tab">Recently viewed</button>
+                                <button class="project-tab">Aegis templates</button>
+                            </div>
+                            <button class="link-browse-all">Browse all →</button>
+                        </div>
+
+                        <div class="projects-cards-grid" id="dash-projects-grid">
+                            <!-- Project Card 1: TaskFlow -->
+                            <div class="project-card" data-project="simple_task_management_app">
+                                <div class="card-thumbnail">
+                                    <div class="thumb-preview-mini">
+                                        <div class="mini-browser-bar"><span></span><span></span><span></span></div>
+                                        <div class="mini-app-mock">
+                                            <span class="mock-badge">✨ TaskFlow</span>
+                                            <div class="mock-line full"></div>
+                                            <div class="mock-line half"></div>
+                                        </div>
+                                    </div>
+                                    <span class="card-status-badge live">Live :5000</span>
+                                </div>
+                                <div class="card-info">
+                                    <h4 class="card-title">TaskFlow Dashboard</h4>
+                                    <p class="card-desc">Authenticated task manager fortified against injection & overflow attacks.</p>
+                                    <div class="card-footer-meta">
+                                        <span>Updated just now</span>
+                                        <span class="score-pill">Shield: 100%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Project Card 2: Cafe Website (Template) -->
+                            <div class="project-card template-card" data-prompt="Build a modern cafe website with coffee menu, cart, checkout, and payment options">
+                                <div class="card-thumbnail template-thumb">
+                                    <div class="template-icon">☕</div>
+                                    <span class="card-status-badge template">Ready to Generate</span>
+                                </div>
+                                <div class="card-info">
+                                    <h4 class="card-title">Cafe & Coffeehouse Website</h4>
+                                    <p class="card-desc">Interactive catalog, coffee items, order cart, checkout & payment simulation.</p>
+                                    <div class="card-footer-meta">
+                                        <span>Click to Build</span>
+                                        <span class="sparkle-text">⚡ Instant Build</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- =========================================================================
+         VIEW 3: THE STUDIO / WORKSPACE (Active Dual-AI Engineering IDE)
+         ========================================================================= -->
+    <div id="view-studio" class="view-screen">
+        <!-- Studio Global Header -->
+        <header class="app-header">
+            <div class="header-brand">
+                <button id="btn-back-dashboard" class="btn-back-nav" title="Back to Dashboard">← Dashboard</button>
+                <div class="brand-logo">
+                    <span class="brand-icon">⚔️</span>
+                    <div class="logo-glow"></div>
+                </div>
+                <div class="brand-info">
+                    <h1 class="brand-title">AEGIS <span>DUAL-AI STUDIO</span></h1>
+                </div>
+            </div>
+
+            <div class="header-controls">
+                <!-- Active Project Selector -->
+                <div class="control-group">
+                    <label for="project-select">Project</label>
+                    <select id="project-select" class="select-input">
+                        <option value="simple_task_management_app">simple_task_management_app</option>
+                    </select>
+                </div>
+
+                <!-- Dynamic Model Selector -->
+                <div class="control-group">
+                    <label for="model-select">AI Model Engine</label>
+                    <select id="model-select" class="select-input model-picker model-picker-sync">
+                        <option value="qwen2.5-coder:7b" selected>⚡ qwen2.5-coder:7b (Local)</option>
+                        <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash</option>
+                        <option value="claude-3-5-sonnet">🧠 Claude 3.5 Sonnet</option>
+                        <option value="gpt-4o">🌐 GPT-4o</option>
+                    </select>
+                </div>
+
+                <!-- Resilience Score Gauge -->
+                <div class="resilience-badge" id="resilience-meter" title="Application Fortification Level">
+                    <div class="resilience-icon">🛡️</div>
+                    <div class="resilience-details">
+                        <span class="resilience-label">SHIELD HEALTH</span>
+                        <span class="resilience-value" id="shield-score">100%</span>
+                    </div>
+                    <div class="resilience-bar-bg">
+                        <div class="resilience-bar-fill" id="shield-bar" style="width: 100%;"></div>
+                    </div>
+                </div>
+
+                <!-- Server Status -->
+                <div class="server-status-pill online" id="server-status">
+                    <span class="pulse-dot"></span>
+                    <span id="server-status-text">Server: :5000</span>
+                </div>
+
+                <!-- Export ZIP Action -->
+                <button id="btn-export-zip-header" class="btn-export-accent" title="Download Bulletproof Project ZIP">
+                    <span>📦 Export ZIP</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace 3-Column Grid -->
+        <main class="workspace-grid">
+            <!-- COLUMN 1: Prompt & File Tree -->
+            <aside class="sidebar-panel">
+                <div class="panel-section prompt-box">
+                    <div class="section-title">
+                        <span class="icon">✨</span>
+                        <span>AUTONOMOUS BUILDER</span>
+                    </div>
+                    <p class="section-desc">Describe requirements to create or modify features:</p>
+                    <textarea id="prompt-input" placeholder="e.g. Build a cafe website with checkout and payment options..." rows="4"></textarea>
+                    <button id="btn-build" class="action-btn primary-btn">
+                        <span class="btn-icon">🚀</span>
+                        <span>Generate & Fortify</span>
+                    </button>
+                </div>
+
+                <div class="panel-section explorer-box">
+                    <div class="section-title space-between">
+                        <div>
+                            <span class="icon">📁</span>
+                            <span>WORKSPACE FILES</span>
+                        </div>
+                        <button id="btn-refresh-files" class="icon-btn" title="Refresh files">🔄</button>
+                    </div>
+                    <ul id="file-tree" class="file-tree-list"></ul>
+                </div>
+            </aside>
+
+            <!-- COLUMN 2: The Adversarial Combat Arena & Code Diff -->
+            <section class="center-panel">
+                <div class="panel-tabs">
+                    <button class="tab-btn active" data-tab="arena-view">
+                        <span class="tab-icon">⚔️</span>
+                        <span>Adversarial Duel Arena</span>
+                        <span class="badge" id="breach-counter">0 Breaches</span>
+                    </button>
+                    <button class="tab-btn" data-tab="code-view">
+                        <span class="tab-icon">💻</span>
+                        <span id="active-file-label">Code Editor (app.py)</span>
+                    </button>
+                    <button class="tab-btn" data-tab="diff-view" id="tab-diff-btn">
+                        <span class="tab-icon">🔄</span>
+                        <span>Patch Diff</span>
+                        <span class="badge diff-badge" id="diff-status-badge">Live</span>
+                    </button>
+                    <div class="panel-actions">
+                        <button id="btn-trigger-duel" class="action-btn duel-btn">
+                            <span class="btn-icon">⚡</span>
+                            <span>Start Arena Combat</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tab 1: Arena Theater -->
+                <div id="arena-view" class="tab-content active">
+                    <!-- Combat Heads Banner -->
+                    <div class="combat-heads-banner">
+                        <div class="fighter fighter-builder">
+                            <div class="fighter-avatar">🛠️</div>
+                            <div class="fighter-info">
+                                <span class="fighter-role">GOOD COP</span>
+                                <h3 class="fighter-name">The Builder AI</h3>
+                                <span class="fighter-motto">"Fast, clean, resilient code."</span>
+                            </div>
+                        </div>
+
+                        <div class="versus-badge">
+                            <span>VS</span>
+                            <div class="sparkle-line"></div>
+                        </div>
+
+                        <div class="fighter fighter-hacker">
+                            <div class="fighter-avatar">😈</div>
+                            <div class="fighter-info">
+                                <span class="fighter-role">BAD COP</span>
+                                <h3 class="fighter-name">The Hacker AI</h3>
+                                <span class="fighter-motto">"If it can break, I will smash it."</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Duel Chat Stream -->
+                    <div class="duel-feed" id="duel-stream">
+                        <div class="system-announcement">
+                            <span class="announcement-icon">🛡️</span>
+                            <span>Dual-AI Adversarial Arena initialized and ready for deployment.</span>
+                        </div>
+                    </div>
+
+                    <!-- Arena Interactive Chat Input Bar -->
+                    <div class="arena-chat-bar">
+                        <div class="chat-input-wrapper">
+                            <input type="text" id="chat-input" placeholder="Type instructions or chat with Builder & Hacker (e.g. 'Build a cafe website with coffee menu, cart, and checkout')..." autocomplete="off">
+                            <button id="btn-chat-send" class="btn-send-message">
+                                <span>Send</span>
+                                <span>🚀</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Code Viewer / Editor -->
+                <div id="code-view" class="tab-content">
+                    <div class="editor-header">
+                        <span id="editor-current-path">simple_task_management_app/app.py</span>
+                        <button id="btn-copy-code" class="icon-btn small">📋 Copy</button>
+                    </div>
+                    <pre class="code-editor"><code id="code-display" class="language-python"># Select a file from the explorer to view source</code></pre>
+                </div>
+
+                <!-- Tab 3: Visual Patch Diff View -->
+                <div id="diff-view" class="tab-content">
+                    <div class="editor-header">
+                        <span id="diff-current-path">Vulnerability Auto-Patch Unified Diff</span>
+                        <button id="btn-copy-diff" class="icon-btn small">📋 Copy Diff</button>
+                    </div>
+                    <div id="diff-display" class="diff-viewer-box">
+                        <div class="diff-empty-state">
+                            <span class="empty-icon">🛡️</span>
+                            <p>No patches applied yet. Run an attack in the Chaos Console or start a duel to view real-time green/red code diffs.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- COLUMN 3: Live Application Preview -->
+            <section class="preview-panel">
+                <div class="preview-header">
+                    <div class="preview-controls">
+                        <button id="btn-reload-preview" class="icon-btn" title="Reload app preview">🔄</button>
+                        <div class="device-toggles">
+                            <button class="device-btn active" data-width="100%" title="Desktop View">🖥️</button>
+                            <button class="device-btn" data-width="768px" title="Tablet View">📱</button>
+                            <button class="device-btn" data-width="375px" title="Mobile View">📲</button>
+                        </div>
+                    </div>
+                    <div class="preview-url-bar">
+                        <span class="lock-icon">🔒</span>
+                        <input type="text" id="preview-url" value="http://127.0.0.1:5000" readonly>
+                    </div>
+                    <a id="btn-open-external" href="http://127.0.0.1:5000" target="_blank" class="icon-btn" title="Open in New Tab">↗️</a>
+                </div>
+
+                <div class="iframe-container" id="iframe-wrapper">
+                    <iframe id="app-preview-frame" src="http://127.0.0.1:5000" title="Live Application Preview"></iframe>
+                </div>
+            </section>
+        </main>
+
+        <!-- Bottom Chaos Console -->
+        <footer class="chaos-console">
+            <div class="console-label">
+                <span class="danger-icon">⚠️</span>
+                <span class="console-title">CHAOS CONSOLE</span>
+                <span class="console-subtitle">Click an attack vector to unleash the Hacker AI in real-time:</span>
+            </div>
+            <div class="attack-buttons-row">
+                <button class="attack-btn" data-vector="sql_injection">
+                    <span class="attack-icon">💉</span>
+                    <span class="attack-name">SQL Injection</span>
+                    <span class="attack-code">' OR '1'='1</span>
+                </button>
+                <button class="attack-btn" data-vector="xss_script">
+                    <span class="attack-icon">⚡</span>
+                    <span class="attack-name">Stored/Reflected XSS</span>
+                    <span class="attack-code">&lt;script&gt;alert(1)&lt;/script&gt;</span>
+                </button>
+                <button class="attack-btn" data-vector="ssti">
+                    <span class="attack-icon">🧬</span>
+                    <span class="attack-name">SSTI Template Exec</span>
+                    <span class="attack-code">{{7*7}} Injected</span>
+                </button>
+                <button class="attack-btn" data-vector="idor">
+                    <span class="attack-icon">🔓</span>
+                    <span class="attack-name">IDOR Cross-Tenant</span>
+                    <span class="attack-code">/tasks/99999 ID</span>
+                </button>
+                <button class="attack-btn" data-vector="unicode_flood">
+                    <span class="attack-icon">🔥</span>
+                    <span class="attack-name">Unicode Flood</span>
+                    <span class="attack-code">🔥 * 2000 chars</span>
+                </button>
+                <button class="attack-btn" data-vector="empty_form">
+                    <span class="attack-icon">💥</span>
+                    <span class="attack-name">Null Form Crash</span>
+                    <span class="attack-code">POST /action (Empty)</span>
+                </button>
+                <button class="attack-btn" data-vector="auth_bypass">
+                    <span class="attack-icon">👻</span>
+                    <span class="attack-name">Auth Bypass Probe</span>
+                    <span class="attack-code">GET /tasks (No Cookie)</span>
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- =========================================================================
+         LOGIN MODAL (Lovable-Style Auth Popup)
+         ========================================================================= -->
+    <div id="modal-login" class="modal-overlay">
+        <div class="modal-box">
+            <button class="btn-close-modal" id="btn-close-login">&times;</button>
+            <div class="modal-badge-logo">🛡️</div>
+            <span class="modal-kicker">Start building.</span>
+            <h2 class="modal-title">Log in to your account</h2>
+
+            <div class="social-login-list">
+                <button class="btn-social" id="btn-login-demo">
+                    <span class="social-icon">👤</span>
+                    <span>Continue as Harsh (Instant Demo)</span>
+                </button>
+                <button class="btn-social" id="btn-login-google">
+                    <span class="social-icon">🌐</span>
+                    <span>Continue with Google</span>
+                </button>
+                <button class="btn-social" id="btn-login-github">
+                    <span class="social-icon">🐙</span>
+                    <span>Continue with GitHub</span>
+                </button>
+                <button class="btn-social" id="btn-login-apple">
+                    <span class="social-icon">🍎</span>
+                    <span>Continue with Apple</span>
+                </button>
+            </div>
+
+            <div class="auth-divider"><span>OR</span></div>
+
+            <div class="email-login-field">
+                <input type="email" id="modal-email" placeholder="harsh@example.com">
+                <button class="btn-continue-email" id="btn-login-email">Continue</button>
+            </div>
+
+            <span class="modal-footer-note">🔒 SSO available on Business & Enterprise plans</span>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

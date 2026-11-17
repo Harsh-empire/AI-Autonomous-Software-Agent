@@ -1,0 +1,84 @@
+[
+  {
+    "round": 1,
+    "status": "HARDENED",
+    "breaches": [
+      {
+        "tier": 1,
+        "type": "Buffer / Unicode Crash",
+        "route": "/register",
+        "method": "POST",
+        "payload": "\ud83d\udd25 * 2000",
+        "status_code": 500,
+        "details": "Endpoint '/register' suffered internal server error on high-volume unicode strings."
+      },
+      {
+        "tier": 1,
+        "type": "Null/Empty Form Crash",
+        "route": "/add_task",
+        "method": "POST",
+        "payload": {
+          "task": ""
+        },
+        "status_code": 500,
+        "details": "Endpoint '/add_task' crashed when submitted with empty fields."
+      },
+      {
+        "tier": 1,
+        "type": "Buffer / Unicode Crash",
+        "route": "/add_task",
+        "method": "POST",
+        "payload": "\ud83d\udd25 * 2000",
+        "status_code": 500,
+        "details": "Endpoint '/add_task' suffered internal server error on high-volume unicode strings."
+      }
+    ]
+  },
+  {
+    "round": 2,
+    "status": "SURVIVED",
+    "breaches": []
+  },
+  {
+    "round": 3,
+    "status": "HARDENED",
+    "breaches": [
+      {
+        "tier": 3,
+        "type": "SQL Injection Failure / Crash",
+        "route": "/add_task",
+        "method": "POST",
+        "payload": "' OR '1'='1",
+        "status_code": 500,
+        "details": "Endpoint '/add_task' crashed on SQL injection payload: ' OR '1'='1"
+      },
+      {
+        "tier": 3,
+        "type": "SQL Injection Failure / Crash",
+        "route": "/add_task",
+        "method": "POST",
+        "payload": "admin' --",
+        "status_code": 500,
+        "details": "Endpoint '/add_task' crashed on SQL injection payload: admin' --"
+      },
+      {
+        "tier": 3,
+        "type": "HTML/XSS Processing Crash",
+        "route": "/add_task",
+        "method": "POST",
+        "payload": "<script>alert('PWNED')</script>",
+        "status_code": 500,
+        "details": "Endpoint '/add_task' crashed on HTML payload: <script>alert('PWNED')</script>"
+      },
+      {
+        "tier": 3,
+        "type": "HTML/XSS Processing Crash",
+        "route": "/add_task",
+        "method": "POST",
+        "payload": "<img src=x onerror=alert('PWNED')>",
+        "status_code": 500,
+        "details": "Endpoint '/add_task' crashed on HTML payload: <img src=x onerror=alert('PWNED')>"
+      }
+    ]
+  }
+]
