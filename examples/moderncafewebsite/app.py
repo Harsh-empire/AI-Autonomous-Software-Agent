@@ -4,6 +4,7 @@ Used as an example target for adversarial testing and demonstration.
 """
 
 import os
+import secrets
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
@@ -14,16 +15,17 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import stripe
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'cafe_dev_secret_key_change_in_production')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(16)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///cafe.db'
-app.config['STRIPE_PUBLIC_KEY'] = os.environ.get('STRIPE_PUBLIC_KEY', 'pk_test_sample_placeholder')
-app.config['STRIPE_SECRET_KEY'] = os.environ.get('STRIPE_SECRET_KEY', 'sk_test_sample_placeholder')
+app.config['STRIPE_PUBLIC_KEY'] = os.environ.get('STRIPE_PUBLIC_KEY', '')
+app.config['STRIPE_SECRET_KEY'] = os.environ.get('STRIPE_SECRET_KEY', '')
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-stripe.api_key = app.config['STRIPE_SECRET_KEY']
+if app.config['STRIPE_SECRET_KEY']:
+    stripe.api_key = app.config['STRIPE_SECRET_KEY']
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)

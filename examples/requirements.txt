@@ -1,0 +1,8 @@
+# Requirements for running AI-generated example applications in examples/
+flask>=3.0.2
+flask-sqlalchemy>=3.1.1
+flask-login>=0.6.3
+flask-wtf>=1.2.1
+wtforms>=3.1.2
+stripe>=8.8.0
+werkzeug>=3.0.1

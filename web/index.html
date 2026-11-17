@@ -38,8 +38,8 @@
         <main class="landing-hero">
             <div class="hero-ambient-glow"></div>
             <div class="hero-content">
-                <h1 class="hero-title">Build something <span class="gradient-text">Bulletproof</span></h1>
-                <p class="hero-subtitle">Bring a new product, internal tool, or entire company to life with Good Cop & Bad Cop Dual-AI engineering.</p>
+                <h1 class="hero-title">Build something <span class="gradient-text">Resilient</span></h1>
+                <p class="hero-subtitle">Bring a new product, internal tool, or application to life with Good Cop & Bad Cop Dual-AI engineering.</p>
 
                 <!-- Floating Central Prompt Pill -->
                 <div class="hero-prompt-card">
@@ -48,10 +48,7 @@
                         <input type="text" id="landing-prompt-input" placeholder="Ask Aegis to create a cafe website with checkout and payments..." autocomplete="off">
                         <div class="prompt-actions-right">
                             <select class="mini-model-select model-picker-sync">
-                                <option value="qwen2.5-coder:7b">⚡ qwen2.5-coder:7b (Local)</option>
-                                <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash</option>
-                                <option value="claude-3-5-sonnet">🧠 Claude 3.5 Sonnet</option>
-                                <option value="gpt-4o">🌐 GPT-4o</option>
+                                <option value="qwen2.5-coder:7b">⚡ qwen2.5-coder:7b (Local Ollama)</option>
                             </select>
                             <button class="btn-pill-submit" id="landing-prompt-submit">
                                 <span>Build</span>
@@ -174,10 +171,7 @@
                                 <div class="model-select-capsule">
                                     <span class="capsule-icon">🤖</span>
                                     <select class="inline-model-select model-picker-sync" id="dash-model-select">
-                                        <option value="qwen2.5-coder:7b">⚡ qwen2.5-coder:7b (Local)</option>
-                                        <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash</option>
-                                        <option value="claude-3-5-sonnet">🧠 Claude 3.5 Sonnet</option>
-                                        <option value="gpt-4o">🌐 GPT-4o</option>
+                                        <option value="qwen2.5-coder:7b">⚡ qwen2.5-coder:7b (Local Ollama)</option>
                                     </select>
                                 </div>
                             </div>
@@ -291,10 +285,7 @@
                 <div class="control-group">
                     <label for="model-select">AI Model Engine</label>
                     <select id="model-select" class="select-input model-picker model-picker-sync">
-                        <option value="qwen2.5-coder:7b" selected>⚡ qwen2.5-coder:7b (Local)</option>
-                        <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash</option>
-                        <option value="claude-3-5-sonnet">🧠 Claude 3.5 Sonnet</option>
-                        <option value="gpt-4o">🌐 GPT-4o</option>
+                        <option value="qwen2.5-coder:7b" selected>⚡ qwen2.5-coder:7b (Local Ollama)</option>
                     </select>
                 </div>
 
@@ -527,36 +518,17 @@
         <div class="modal-box">
             <button class="btn-close-modal" id="btn-close-login">&times;</button>
             <div class="modal-badge-logo">🛡️</div>
-            <span class="modal-kicker">Local Demo Sandbox</span>
-            <h2 class="modal-title">Select Demo Profile</h2>
+            <span class="modal-kicker">Local Developer Sandbox</span>
+            <h2 class="modal-title">Sign in to AEGIS</h2>
 
             <div class="social-login-list">
                 <button class="btn-social" id="btn-login-demo">
                     <span class="social-icon">👤</span>
-                    <span>Continue as Harsh (Demo Profile)</span>
-                </button>
-                <button class="btn-social" id="btn-login-google">
-                    <span class="social-icon">🌐</span>
-                    <span>Continue with Google (Demo Only)</span>
-                </button>
-                <button class="btn-social" id="btn-login-github">
-                    <span class="social-icon">🐙</span>
-                    <span>Continue with GitHub (Demo Only)</span>
-                </button>
-                <button class="btn-social" id="btn-login-apple">
-                    <span class="social-icon">🍎</span>
-                    <span>Continue with Apple (Demo Only)</span>
+                    <span>Continue as Local Developer (Demo Mode)</span>
                 </button>
             </div>
 
-            <div class="auth-divider"><span>OR DEMO EMAIL</span></div>
-
-            <div class="email-login-field">
-                <input type="email" id="modal-email" placeholder="harsh@example.com">
-                <button class="btn-continue-email" id="btn-login-email">Continue</button>
-            </div>
-
-            <span class="modal-footer-note">ℹ️ Demo profiles run locally in offline test mode</span>
+            <span class="modal-footer-note">ℹ️ AEGIS runs locally and connects directly to local Ollama</span>
         </div>
     </div>
 

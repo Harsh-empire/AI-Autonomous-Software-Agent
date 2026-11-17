@@ -29,7 +29,7 @@ def test_adversarial_payload_categories():
 
 
 def test_scan_flask_endpoints_on_sample_app():
-    sample_proj = os.path.join(root_dir, "simple_task_management_app")
+    sample_proj = os.path.join(root_dir, "examples", "simple_task_management_app")
     scan_results = scan_flask_endpoints(sample_proj)
     
     assert "endpoints" in scan_results

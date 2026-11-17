@@ -1,11 +1,12 @@
+import os
+import secrets
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
-import os
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'aegis_dev_secret_key_override_in_env')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(16)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///tasks.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)

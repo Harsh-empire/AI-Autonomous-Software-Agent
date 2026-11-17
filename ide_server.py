@@ -63,14 +63,56 @@ def safe_join(base: str, *parts: str) -> str:
     return path
 
 
+def get_allowed_projects() -> List[str]:
+    """Scans and returns the allowed project names from examples/ and root workspace."""
+    projects = set()
+    # 1. Check examples directory
+    examples_dir = os.path.join(current_dir, "examples")
+    if os.path.isdir(examples_dir):
+        for item in os.listdir(examples_dir):
+            p_dir = os.path.join(examples_dir, item)
+            if os.path.isdir(p_dir) and not item.startswith((".", "_")):
+                if os.path.exists(os.path.join(p_dir, "app.py")) or os.path.exists(os.path.join(p_dir, "package.json")):
+                    projects.add(item)
+    # 2. Check root workspace for created projects
+    for item in os.listdir(current_dir):
+        p_dir = os.path.join(current_dir, item)
+        if os.path.isdir(p_dir) and not item.startswith((".", "_", "agent", "web", "instance", "docs", "tests", "examples", "bench", "playbook")):
+            if os.path.exists(os.path.join(p_dir, "app.py")) or os.path.exists(os.path.join(p_dir, "package.json")):
+                projects.add(item)
+    if not projects:
+        projects.add("simple_task_management_app")
+    return sorted(list(projects))
+
+
+def resolve_project_dir(project: str) -> str:
+    """
+    Validates project is in the allowed projects list and returns its safe path.
+    Raises HTTPException(400) if project leaves base or is not in allowed projects list.
+    """
+    if not project or ".." in project or "/" in project or "\\" in project:
+        raise HTTPException(status_code=400, detail="Invalid path: Path traversal detected")
+
+    allowed = get_allowed_projects()
+    if project not in allowed:
+        raise HTTPException(status_code=400, detail=f"Invalid project: '{project}' is not in allowed projects list")
+
+    # Check examples/
+    examples_path = os.path.join(current_dir, "examples", project)
+    if os.path.isdir(examples_path):
+        return safe_join(os.path.join(current_dir, "examples"), project)
+
+    # Check root workspace
+    root_path = os.path.join(current_dir, project)
+    if os.path.isdir(root_path):
+        return safe_join(current_dir, project)
+
+    raise HTTPException(status_code=404, detail=f"Project '{project}' directory not found")
+
+
 def ensure_target_server_running(project_dir: str):
     """Ensures the project's application (Flask or Node) is running on port 5000."""
     global target_server_process
-    try:
-        project_dir = safe_join(current_dir, os.path.relpath(project_dir, current_dir))
-    except Exception:
-        return
-
     with target_server_lock:
         if target_server_process and target_server_process.poll() is None:
             return
@@ -120,6 +162,12 @@ def restart_target_server(project_dir: str):
 # REST ENDPOINTS
 # =============================================================================
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Docker and monitoring."""
+    return {"status": "ok", "service": "aegis-web-ide"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def get_index():
     index_path = os.path.join(web_dir, "index.html")
@@ -129,7 +177,7 @@ async def get_index():
 
 @app.get("/api/models")
 async def get_available_models():
-    """Discovers available Ollama local models and lists real cloud frontier models."""
+    """Discovers available local Ollama models. Only Ollama models are usable."""
     ollama_models = []
     try:
         r = requests.get(f"{OLLAMA_BASE_URL}/models", timeout=2)
@@ -142,65 +190,23 @@ async def get_available_models():
     if not ollama_models:
         ollama_models = ["qwen2.5-coder:7b"]
 
-    cloud_models = [
-        {
-            "id": "gemini-1.5-flash",
-            "name": "Gemini 1.5 Flash (Google)",
-            "configured": bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
-        },
-        {
-            "id": "gemini-2.0-flash",
-            "name": "Gemini 2.0 Flash (Google)",
-            "configured": bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
-        },
-        {
-            "id": "claude-3-5-sonnet-20241022",
-            "name": "Claude 3.5 Sonnet (Anthropic)",
-            "configured": bool(os.environ.get("ANTHROPIC_API_KEY"))
-        },
-        {
-            "id": "gpt-4o",
-            "name": "GPT-4o (OpenAI)",
-            "configured": bool(os.environ.get("OPENAI_API_KEY"))
-        },
-        {
-            "id": "gpt-4o-mini",
-            "name": "GPT-4o Mini (OpenAI)",
-            "configured": bool(os.environ.get("OPENAI_API_KEY"))
-        }
-    ]
-
     return {
         "ollama": ollama_models,
-        "cloud": [m["id"] for m in cloud_models],
-        "cloud_details": cloud_models,
+        "cloud": [],
         "selected": ollama_models[0] if ollama_models else "qwen2.5-coder:7b"
     }
 
 
 @app.get("/api/projects")
 async def get_projects():
-    """Lists project directories found in workspace."""
-    projects = []
-    for item in os.listdir(current_dir):
-        try:
-            full_path = safe_join(current_dir, item)
-            if os.path.isdir(full_path) and not item.startswith((".", "_", "agent", "web", "instance", "docs", "tests")):
-                if os.path.exists(os.path.join(full_path, "app.py")):
-                    projects.append(item)
-        except HTTPException:
-            continue
-    if not projects:
-        projects = ["simple_task_management_app"]
-    return {"projects": projects}
+    """Lists allowed project directories."""
+    return {"projects": get_allowed_projects()}
 
 
 @app.get("/api/project-files")
 async def get_project_files(project: str = Query("simple_task_management_app")):
     """Returns a list of editable project files safely."""
-    proj_dir = safe_join(current_dir, project)
-    if not os.path.isdir(proj_dir):
-        raise HTTPException(status_code=404, detail="Project not found")
+    proj_dir = resolve_project_dir(project)
     
     files_list = []
     ignored = {".venv", "venv", "__pycache__", ".git", "instance"}
@@ -216,9 +222,7 @@ async def get_project_files(project: str = Query("simple_task_management_app")):
 @app.get("/api/file-content", response_class=PlainTextResponse)
 async def get_file_content(project: str = Query("simple_task_management_app"), file: str = Query(...)):
     """Returns the text content of a requested file safely."""
-    proj_dir = safe_join(current_dir, project)
-    if not os.path.isdir(proj_dir):
-        raise HTTPException(status_code=404, detail="Project not found")
+    proj_dir = resolve_project_dir(project)
     file_path = safe_join(proj_dir, file)
     if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -229,9 +233,7 @@ async def get_file_content(project: str = Query("simple_task_management_app"), f
 @app.get("/api/patch-diff", response_class=PlainTextResponse)
 async def get_patch_diff(project: str = Query("simple_task_management_app")):
     """Returns the latest unified diff generated by the Builder AI safely."""
-    proj_dir = safe_join(current_dir, project)
-    if not os.path.isdir(proj_dir):
-        raise HTTPException(status_code=404, detail="Project not found")
+    proj_dir = resolve_project_dir(project)
     diff_file = safe_join(proj_dir, "last_patch_diff.txt")
     if os.path.exists(diff_file):
         with open(diff_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -241,10 +243,8 @@ async def get_patch_diff(project: str = Query("simple_task_management_app")):
 
 @app.get("/api/security-audit")
 async def get_security_audit(project: str = Query("simple_task_management_app")):
-    """Returns the security audit scorecard JSON safely."""
-    proj_dir = safe_join(current_dir, project)
-    if not os.path.isdir(proj_dir):
-        raise HTTPException(status_code=404, detail="Project not found")
+    """Returns the security audit scorecard JSON safely. Never returns a fake default."""
+    proj_dir = resolve_project_dir(project)
     audit_file = safe_join(proj_dir, "security_audit.json")
     if os.path.exists(audit_file):
         with open(audit_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -252,20 +252,16 @@ async def get_security_audit(project: str = Query("simple_task_management_app"))
                 return json.load(f)
             except Exception:
                 pass
-    return {
-        "status": "no audit yet",
-        "target_project": project,
-        "final_shield_health_score": None,
-        "audit_verdict": "NO_AUDIT"
-    }
+    return JSONResponse(
+        status_code=404,
+        content={"status": "no audit yet", "target_project": project}
+    )
 
 
 @app.get("/api/export-zip")
 async def export_project_zip(project: str = Query("simple_task_management_app")):
-    """Exports and downloads the fortified application as a clean ZIP archive safely."""
-    proj_dir = safe_join(current_dir, project)
-    if not os.path.isdir(proj_dir):
-        raise HTTPException(status_code=404, detail="Project not found")
+    """Exports and downloads the application as a clean ZIP archive safely."""
+    proj_dir = resolve_project_dir(project)
 
     ignored = {".venv", "venv", "__pycache__", ".git", "instance"}
     zip_buffer = io.BytesIO()
@@ -282,7 +278,7 @@ async def export_project_zip(project: str = Query("simple_task_management_app"))
     return Response(
         content=zip_buffer.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{project}_bulletproof.zip"'}
+        headers={"Content-Disposition": f'attachment; filename="{project}.zip"'}
     )
 
 
@@ -295,9 +291,7 @@ class ChaosAttackRequest(BaseModel):
 @app.post("/api/chaos-attack")
 async def trigger_chaos_attack(req: ChaosAttackRequest):
     """Executes a single manual attack vector and triggers builder self-healing if breached."""
-    proj_dir = safe_join(current_dir, req.project)
-    if not os.path.isdir(proj_dir):
-        raise HTTPException(status_code=404, detail="Project not found")
+    proj_dir = resolve_project_dir(req.project)
     ensure_target_server_running(proj_dir)
 
     try:
@@ -359,12 +353,9 @@ async def websocket_arena_stream(websocket: WebSocket):
                 rounds = int(msg.get("rounds", 3))
 
                 try:
-                    proj_dir = safe_join(current_dir, project_name)
-                    if not os.path.isdir(proj_dir):
-                        await websocket.send_json({"type": "error", "text": f"Project '{project_name}' not found."})
-                        continue
-                except HTTPException:
-                    await websocket.send_json({"type": "error", "text": "Invalid project path: traversal detected."})
+                    proj_dir = resolve_project_dir(project_name)
+                except HTTPException as e:
+                    await websocket.send_json({"type": "error", "text": f"Project validation error: {e.detail}"})
                     continue
 
                 ensure_target_server_running(proj_dir)
@@ -399,8 +390,8 @@ async def websocket_arena_stream(websocket: WebSocket):
                     breaches = hacker.run_attack_round(proj_dir, round_tier=r)
 
                     if not breaches:
-                        hacker_taunt = "Bah! I couldn't break the endpoints this wave. App held up."
-                        builder_defense = "Defenses held strong against all probes this round."
+                        hacker_taunt = "No breaches discovered this wave. App held up."
+                        builder_defense = "Defenses held against tier probes this round."
                         await websocket.send_json({"type": "speech", "speaker": "HACKER AI", "text": hacker_taunt, "avatar": "😈"})
                         await websocket.send_json({"type": "speech", "speaker": "BUILDER AI", "text": builder_defense, "avatar": "🛠️"})
                     else:
@@ -432,7 +423,7 @@ async def websocket_arena_stream(websocket: WebSocket):
                                     await websocket.send_json({
                                         "type": "speech",
                                         "speaker": "BUILDER AI",
-                                        "text": f"Patch verified! Defense held against re-test.",
+                                        "text": f"Patch verified against re-test. Probe sealed.",
                                         "avatar": "🛠️"
                                     })
                                 else:
@@ -440,7 +431,7 @@ async def websocket_arena_stream(websocket: WebSocket):
                                     await websocket.send_json({
                                         "type": "speech",
                                         "speaker": "HACKER AI",
-                                        "text": "Haha! Your fix was incomplete, the hole is still there!",
+                                        "text": "Fix failed re-test: vulnerability is still present.",
                                         "avatar": "😈"
                                     })
                             else:
@@ -451,14 +442,14 @@ async def websocket_arena_stream(websocket: WebSocket):
                     await websocket.send_json({
                         "type": "fortified",
                         "score": score,
-                        "text": f"Application Fortified! All {verified_patches_count} breach(es) verified and sealed (Score: {score}%)."
+                        "text": f"Arena duel completed: All {verified_patches_count} breach(es) verified and resolved (Score: {score}%)."
                     })
                 else:
                     await websocket.send_json({
                         "type": "duel_completed",
                         "score": score,
                         "unresolved": unresolved_count,
-                        "text": f"Duel concluded with {unresolved_count} unresolved vulnerability/vulnerabilities (Score: {score}%)."
+                        "text": f"Arena duel concluded: {verified_patches_count} verified, {unresolved_count} unresolved (Score: {score}%)."
                     })
 
             elif action == "start_build":
@@ -481,12 +472,6 @@ async def websocket_arena_stream(websocket: WebSocket):
                     "avatar": "🛠️"
                 })
                 await asyncio.sleep(0.5)
-                await websocket.send_json({
-                    "type": "speech",
-                    "speaker": "HACKER AI",
-                    "text": "Go ahead and build it fast, Builder. Once your endpoints are up, I'm going to unleash chaos on your forms and checkout!",
-                    "avatar": "😈"
-                })
 
                 # 1. Analyze requirements
                 try:
@@ -543,55 +528,8 @@ async def websocket_arena_stream(websocket: WebSocket):
                 await websocket.send_json({
                     "type": "speech",
                     "speaker": "BUILDER AI",
-                    "text": f"🎉 Application '{project_title}' is built and running on port 5000! Preview is now live.",
+                    "text": f"Application '{project_title}' is built and running on port 5000.",
                     "avatar": "🛠️"
-                })
-
-                # 5. Automatically initiate the Adversarial Duel to fortify the newly created app!
-                await websocket.send_json({
-                    "type": "speech",
-                    "speaker": "HACKER AI",
-                    "text": "Target application online! Let's see if your new routes can survive real penetration attacks!",
-                    "avatar": "😈"
-                })
-
-                hacker = HackerAgent(client, model=resolved_model)
-                builder = BuilderAgent(client, model=resolved_model)
-
-                verified_new = 0
-                unresolved_new = 0
-                for r in range(1, 3):
-                    await websocket.send_json({"type": "info", "text": f"⚔️ Entering ROUND {r} of 2 on new app..."})
-                    breaches = hacker.run_attack_round(proj_dir, round_tier=r)
-                    if not breaches:
-                        await websocket.send_json({"type": "speech", "speaker": "BUILDER AI", "text": f"Round {r}: Defenses held strong against all vectors!", "avatar": "🛠️"})
-                    else:
-                        for b in breaches:
-                            await websocket.send_json({"type": "breach", "breach": b})
-                            h_speech = hacker.trash_talk(json.dumps(b))
-                            await websocket.send_json({"type": "speech", "speaker": "HACKER AI", "text": h_speech, "avatar": "😈"})
-                            b_speech = builder.counter_argument(b)
-                            await websocket.send_json({"type": "speech", "speaker": "BUILDER AI", "text": b_speech, "avatar": "🛠️"})
-                            repaired = builder.generate_targeted_defense(proj_dir, b)
-                            if repaired:
-                                await websocket.send_json({"type": "patch", "file": "app.py"})
-                                restart_target_server(proj_dir)
-                                await websocket.send_json({"type": "server_restart", "url": "http://127.0.0.1:5000"})
-                                await asyncio.sleep(1)
-                                re_breaches = hacker.run_attack_round(proj_dir, round_tier=r)
-                                if not any(rb["type"] == b["type"] for rb in re_breaches):
-                                    verified_new += 1
-                                else:
-                                    unresolved_new += 1
-                            else:
-                                unresolved_new += 1
-
-                total_new = verified_new + unresolved_new
-                score_new = 100 if total_new == 0 else int((verified_new / total_new) * 100)
-                await websocket.send_json({
-                    "type": "fortified" if unresolved_new == 0 else "duel_completed",
-                    "score": score_new,
-                    "text": f"Duel concluded on {project_title} (Shield Score: {score_new}%)."
                 })
 
     except WebSocketDisconnect:
@@ -605,8 +543,12 @@ async def websocket_arena_stream(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     # Start target app in background if needed
-    default_proj = os.path.join(current_dir, "simple_task_management_app")
-    ensure_target_server_running(default_proj)
+    try:
+        default_proj = resolve_project_dir("simple_task_management_app")
+        ensure_target_server_running(default_proj)
+    except Exception:
+        pass
+
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8000"))
     print("\n" + "=" * 75)

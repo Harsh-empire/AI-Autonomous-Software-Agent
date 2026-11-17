@@ -126,32 +126,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Login options
         const btnLoginDemo = document.getElementById("btn-login-demo");
-        if (btnLoginDemo) btnLoginDemo.addEventListener("click", () => loginUser("Harsh", "harsh@aegis.ai"));
-
-        const btnLoginGoogle = document.getElementById("btn-login-google");
-        if (btnLoginGoogle) btnLoginGoogle.addEventListener("click", () => loginUser("Harsh (Google)", "harsh@gmail.com"));
-
-        const btnLoginGithub = document.getElementById("btn-login-github");
-        if (btnLoginGithub) btnLoginGithub.addEventListener("click", () => loginUser("Harsh (GitHub)", "harsh@github.com"));
-
-        const btnLoginApple = document.getElementById("btn-login-apple");
-        if (btnLoginApple) btnLoginApple.addEventListener("click", () => loginUser("Harsh (Apple)", "harsh@icloud.com"));
-
-        const btnLoginEmail = document.getElementById("btn-login-email");
-        const modalEmailInput = document.getElementById("modal-email");
-        if (btnLoginEmail && modalEmailInput) {
-            btnLoginEmail.addEventListener("click", () => {
-                const val = modalEmailInput.value.trim();
-                const name = val ? val.split("@")[0] : "Harsh";
-                loginUser(name, val || "harsh@aegis.ai");
-            });
-            modalEmailInput.addEventListener("keydown", (e) => {
-                if (e.key === "Enter") {
-                    const val = modalEmailInput.value.trim();
-                    const name = val ? val.split("@")[0] : "Harsh";
-                    loginUser(name, val || "harsh@aegis.ai");
-                }
-            });
+        if (btnLoginDemo) {
+            btnLoginDemo.addEventListener("click", () => loginUser("Local Developer (Demo)", "dev@local"));
         }
 
         // Logout
@@ -200,30 +176,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     optGroupLocal.appendChild(opt);
                 });
                 select.appendChild(optGroupLocal);
-
-                // Group 2: Cloud Frontier
-                const optGroupCloud = document.createElement("optgroup");
-                optGroupCloud.label = "Cloud Frontier Engines (Requires API Key)";
-                if (data.cloud_details && data.cloud_details.length > 0) {
-                    data.cloud_details.forEach(m => {
-                        const opt = document.createElement("option");
-                        opt.value = m.id;
-                        const statusBadge = m.configured ? "Ready" : "Set API Key";
-                        opt.textContent = `✨ ${m.name || m.id} (${statusBadge})`;
-                        if (m.id === currentVal) opt.selected = true;
-                        optGroupCloud.appendChild(opt);
-                    });
-                } else {
-                    const cloudList = (data.cloud && data.cloud.length > 0) ? data.cloud : ["gemini-1.5-flash", "claude-3-5-sonnet-20241022", "gpt-4o"];
-                    cloudList.forEach(m => {
-                        const opt = document.createElement("option");
-                        opt.value = m;
-                        opt.textContent = `✨ ${m}`;
-                        if (m === currentVal) opt.selected = true;
-                        optGroupCloud.appendChild(opt);
-                    });
-                }
-                select.appendChild(optGroupCloud);
             });
         } catch (e) {
             console.warn("Could not fetch models dynamically:", e);
