@@ -30,16 +30,20 @@ except ImportError:
 
 
 
+try:
+    from agent.llm_client import get_llm_client
+except ImportError:
+    from llm_client import get_llm_client
+
 # ============================================================
-# OLLAMA CONNECTION
+# LLM CONNECTION (Local Ollama, Gemini, Claude, or OpenAI)
 # ============================================================
 
-client = OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama"
-)
-
-MODEL = "qwen2.5-coder:7b"
+MODEL = os.environ.get("AEGIS_MODEL", "qwen2.5-coder:7b")
+try:
+    client, MODEL = get_llm_client(MODEL)
+except Exception:
+    client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
 
 MAX_REPAIR_ATTEMPTS = 3
 

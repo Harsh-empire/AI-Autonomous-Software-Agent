@@ -528,13 +528,18 @@ class AdversarialArena:
     """
     Orchestrates the duel between Good Cop (Builder) and Bad Cop (Hacker).
     """
-    def __init__(self, client: OpenAI, model: str = "qwen2.5-coder:7b", max_rounds: int = 3):
+    def __init__(self, client: Any, model: str = "qwen2.5-coder:7b", max_rounds: int = 3):
         self.builder = BuilderAgent(client, model)
         self.hacker = HackerAgent(client, model)
         self.max_rounds = max_rounds
         self.duel_logs = []
         self.total_breaches = 0
-        self.total_patches = 0
+        self.verified_patches = 0
+        self.unresolved_breaches = 0
+
+    @property
+    def total_patches(self) -> int:
+        return self.verified_patches
 
     def conduct_duel(self, project_dir: str, restart_server_callback) -> bool:
         """
@@ -546,8 +551,6 @@ class AdversarialArena:
         print("=" * 75)
         print("The Builder writes code. The Hacker aggressively tries to break it.")
         print("They will battle until the application survives all attack vectors.\n")
-
-        all_survived = True
 
         for round_num in range(1, self.max_rounds + 1):
             log_arena(f"ROUND {round_num} of {self.max_rounds}")
@@ -561,13 +564,14 @@ class AdversarialArena:
                 self.duel_logs.append({
                     "round": round_num,
                     "status": "SURVIVED",
-                    "breaches": []
+                    "breaches": [],
+                    "verified_patches": 0,
+                    "unresolved": 0
                 })
                 time.sleep(1)
                 continue
 
             # 2. Hacker breached the application!
-            all_survived = False
             self.total_breaches += len(breaches)
             log_hacker(f"💥 FOUND {len(breaches)} CRITICAL BREACH(ES) in Round {round_num}!")
             
@@ -583,28 +587,43 @@ class AdversarialArena:
                 # Builder attempts defensive repair
                 repaired = self.builder.generate_targeted_defense(project_dir, b)
                 if repaired:
-                    self.total_patches += 1
-                    log_arena("Restarting application server with hardened defense...")
+                    log_arena("Restarting application server with defensive patch...")
                     restart_server_callback()
                     time.sleep(2)
                     
                     # Hacker immediately re-probes the same vector
                     log_hacker("Re-testing breached vector to verify if your fix holds...")
                     re_breaches = self.hacker.run_attack_round(project_dir, round_tier=round_num)
-                    if not any(rb["type"] == b["type"] for rb in re_breaches):
+                    still_vulnerable = any(rb["type"] == b["type"] for rb in re_breaches)
+                    if not still_vulnerable:
+                        self.verified_patches += 1
+                        b["status"] = "VERIFIED_PATCHED"
                         log_hacker(f"Tsk... patch confirmed. Vector '{b['type']}' is now sealed.")
                         log_builder("Defense verified. System fortified.")
                     else:
-                        log_hacker(f"Haha! Your fix was incomplete, the hole is still there!")
+                        self.unresolved_breaches += 1
+                        b["status"] = "UNRESOLVED"
+                        log_hacker("Haha! Your fix was incomplete, the hole is still there!")
+                else:
+                    self.unresolved_breaches += 1
+                    b["status"] = "FAILED_TO_PATCH"
+
+            round_unresolved = sum(1 for b in breaches if b.get("status") != "VERIFIED_PATCHED")
+            round_status = "HARDENED" if round_unresolved == 0 else "PARTIALLY_HARDENED"
 
             self.duel_logs.append({
                 "round": round_num,
-                "status": "HARDENED",
-                "breaches": breaches
+                "status": round_status,
+                "breaches": breaches,
+                "verified_patches": len(breaches) - round_unresolved,
+                "unresolved": round_unresolved
             })
 
         print("\n" + "=" * 75)
-        print(f"{TerminalColors.SUCCESS}{TerminalColors.BOLD}🎉 ADVERSARIAL COMBAT COMPLETED: APPLICATION FORTIFIED! 🎉{TerminalColors.RESET}")
+        if self.unresolved_breaches == 0:
+            print(f"{TerminalColors.SUCCESS}{TerminalColors.BOLD}🎉 ADVERSARIAL COMBAT COMPLETED: APPLICATION FORTIFIED! 🎉{TerminalColors.RESET}")
+        else:
+            print(f"{TerminalColors.WARNING}{TerminalColors.BOLD}⚠️ ADVERSARIAL COMBAT COMPLETED: UNRESOLVED VULNERABILITIES REMAIN! ({self.unresolved_breaches} Unresolved) ⚠️{TerminalColors.RESET}")
         print("=" * 75)
         
         # Save duel log to project
@@ -619,33 +638,46 @@ class AdversarialArena:
         # Generate standardized Security Audit Scorecard
         self.generate_security_audit_scorecard(project_dir)
 
-        return True
+        return self.unresolved_breaches == 0
 
     def generate_security_audit_scorecard(self, project_dir: str):
-        """Generates security_audit.json with comprehensive metrics and OWASP compliance."""
-        score = 100 if self.total_breaches == self.total_patches else max(50, 100 - (self.total_breaches - self.total_patches) * 20)
+        """Generates security_audit.json with truthful verified metrics."""
+        if self.total_breaches == 0:
+            score = 100
+        else:
+            score = int((self.verified_patches / self.total_breaches) * 100)
+
+        verdict = "FORTIFIED" if (self.unresolved_breaches == 0 and score == 100) else (
+            "PARTIALLY_FORTIFIED" if self.verified_patches > 0 else "VULNERABLE"
+        )
+
         audit_data = {
             "timestamp": time.time(),
             "target_project": os.path.basename(project_dir),
             "final_shield_health_score": f"{score}%",
             "total_duel_rounds": self.max_rounds,
             "total_breaches_detected": self.total_breaches,
-            "total_patches_applied": self.total_patches,
-            "owasp_top_10_categories_evaluated": [
-                "A01: Broken Access Control",
-                "A02: Cryptographic Failures",
-                "A03: Injection (SQLi, XSS, SSTI)",
-                "A04: Insecure Design & Boundary Overflow",
-                "A07: Identification and Authentication Failures"
+            "verified_patches": self.verified_patches,
+            "unresolved_breaches": self.unresolved_breaches,
+            "audit_verdict": verdict,
+            "basic_security_probes_evaluated": [
+                "404 Route & Boundary Handling",
+                "Empty Forms & Whitespace Probes",
+                "Unicode & Buffer Overflow Probes",
+                "Authentication Bypass & Session Tampering",
+                "SQL Injection Probes (Basic Pattern Checks)",
+                "Reflected Cross-Site Scripting (XSS Reflection Checks)",
+                "Server-Side Template Injection (SSTI Evaluation Checks)",
+                "IDOR / Object Access Boundary Probes",
+                "Auth Concurrency & Burst DoS Probes"
             ],
-            "audit_verdict": "FORTIFIED" if score >= 90 else "WARNING_PARTIALLY_FORTIFIED",
             "duel_logs": self.duel_logs
         }
         audit_file = os.path.join(project_dir, "security_audit.json")
         try:
             with open(audit_file, "w", encoding="utf-8") as f:
                 json.dump(audit_data, f, indent=2)
-            log_arena(f"🛡️ Security Audit Scorecard generated: {audit_file} (Shield Health: {score}%)")
+            log_arena(f"🛡️ Security Audit Scorecard generated: {audit_file} (Shield Health: {score}%, Verdict: {verdict})")
         except Exception:
             pass
 

@@ -96,14 +96,20 @@ def main():
         sys.exit(1)
 
     python_exe = find_python_executable(project_dir)
+    try:
+        from agent.llm_client import get_llm_client
+    except ImportError:
+        from llm_client import get_llm_client
+
+    try:
+        client, resolved_model = get_llm_client(args.model)
+    except Exception as e:
+        print(f"❌ Error configuring LLM client: {e}")
+        sys.exit(1)
+
     print(f"🎯 Target Project: {project_dir}")
     print(f"🐍 Python Interpreter: {python_exe}")
-    print(f"🤖 Model: {args.model} via Ollama")
-
-    client = OpenAI(
-        base_url="http://localhost:11434/v1",
-        api_key="ollama"
-    )
+    print(f"🤖 Model: {resolved_model}")
 
     current_process = start_server(project_dir, python_exe)
 

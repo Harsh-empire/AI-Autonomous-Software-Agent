@@ -22,6 +22,7 @@ instance/
 .claude/
 .idea/
 .vscode/
+.pytest_cache/
 
 # Logs
 *.log

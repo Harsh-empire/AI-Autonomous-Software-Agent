@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 import os
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'aegis_secure_secret_key_9948291'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'aegis_dev_secret_key_override_in_env')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///tasks.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)

@@ -203,15 +203,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // Group 2: Cloud Frontier
                 const optGroupCloud = document.createElement("optgroup");
-                optGroupCloud.label = "Cloud Frontier Engines";
-                const cloudList = (data.cloud && data.cloud.length > 0) ? data.cloud : ["gemini-3.8-flash", "claude-3-5-sonnet", "gpt-4o"];
-                cloudList.forEach(m => {
-                    const opt = document.createElement("option");
-                    opt.value = m;
-                    opt.textContent = `✨ ${m}`;
-                    if (m === currentVal) opt.selected = true;
-                    optGroupCloud.appendChild(opt);
-                });
+                optGroupCloud.label = "Cloud Frontier Engines (Requires API Key)";
+                if (data.cloud_details && data.cloud_details.length > 0) {
+                    data.cloud_details.forEach(m => {
+                        const opt = document.createElement("option");
+                        opt.value = m.id;
+                        const statusBadge = m.configured ? "Ready" : "Set API Key";
+                        opt.textContent = `✨ ${m.name || m.id} (${statusBadge})`;
+                        if (m.id === currentVal) opt.selected = true;
+                        optGroupCloud.appendChild(opt);
+                    });
+                } else {
+                    const cloudList = (data.cloud && data.cloud.length > 0) ? data.cloud : ["gemini-1.5-flash", "claude-3-5-sonnet-20241022", "gpt-4o"];
+                    cloudList.forEach(m => {
+                        const opt = document.createElement("option");
+                        opt.value = m;
+                        opt.textContent = `✨ ${m}`;
+                        if (m === currentVal) opt.selected = true;
+                        optGroupCloud.appendChild(opt);
+                    });
+                }
                 select.appendChild(optGroupCloud);
             });
         } catch (e) {
@@ -367,8 +378,15 @@ document.addEventListener("DOMContentLoaded", () => {
             reloadPreview();
             appendSystemNotice(`📁 Switched active workspace to: '${currentProject}'`);
         } else if (msg.type === "fortified") {
-            updateShield(100);
-            appendSystemNotice(`🎉 APPLICATION FORTIFIED: All attack vectors repelled!`);
+            const score = msg.score !== undefined ? msg.score : 100;
+            updateShield(score);
+            appendSystemNotice(msg.text || `🎉 APPLICATION FORTIFIED: All attack vectors repelled!`);
+        } else if (msg.type === "duel_completed") {
+            const score = msg.score !== undefined ? msg.score : 60;
+            updateShield(score);
+            appendSystemNotice(msg.text || `⚠️ Duel completed with unresolved vulnerabilities.`);
+        } else if (msg.type === "error") {
+            appendSystemNotice(`❌ Error: ${msg.text}`);
         } else if (msg.type === "info") {
             appendSystemNotice(msg.text);
         }
