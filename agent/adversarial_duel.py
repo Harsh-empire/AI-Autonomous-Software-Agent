@@ -845,3 +845,11 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+        # Generate human-readable report.md and SARIF audit export
+        try:
+            from agent.report_generator import generate_project_report
+            generate_project_report(project_dir, audit_data)
+            log_arena(f"📋 Generated report.md and audit_sarif.json in {project_dir}")
+        except Exception as e:
+            pass
+
