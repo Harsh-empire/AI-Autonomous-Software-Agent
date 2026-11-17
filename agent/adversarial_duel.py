@@ -1,7 +1,15 @@
 """
 Adversarial Dual-AI Engine: Good Cop (Builder) vs Bad Cop (Hacker)
-An automated adversarial loop that pits a generative developer against an
-aggressive red-team security breaker until the application is resilient.
+
+Architecture & Honesty Statement:
+- The Hacker Agent is a rule-based HTTP payload fuzzer. It generates deterministic
+  injection, boundary, and crash probes. The LLM is used exclusively for commentary/swagger
+  and not for autonomous zero-day discovery.
+- Vulnerability detection relies predominantly on HTTP 500 crashes and targeted heuristic
+  checks (reflected script tags, SSTI evaluating 7*7 to 49, path traversal matching 'root:').
+- The Builder Agent uses an LLM to generate defensive patches against reported breaches.
+- Verified Patch Gate: A patch is only marked as fixed if ast.parse passes, replaying the
+  exact exploit payload no longer triggers a breach, and legitimate endpoint behavior succeeds.
 """
 
 import json
@@ -398,6 +406,62 @@ class HackerAgent:
 
         return breaches
 
+    def replay_breach(self, breach: Dict[str, Any]) -> bool:
+        """
+        Replays the exact breach request to verify whether the vulnerability remains.
+        Returns True if the breach condition persists (still vulnerable), False if sealed.
+        """
+        method = breach.get("method", "GET").upper()
+        route = breach.get("route", "/")
+        payload = breach.get("payload")
+        target_url = f"{self.base_url}{route if route.startswith('/') else '/' + route}"
+        session = requests.Session()
+
+        try:
+            if method == "POST":
+                if isinstance(payload, dict):
+                    r = session.post(target_url, data=payload, timeout=3, allow_redirects=True)
+                else:
+                    r = session.post(target_url, data={"input": payload or ""}, timeout=3, allow_redirects=True)
+            else:
+                params = {"q": payload} if payload else {}
+                r = session.get(target_url, params=params, timeout=3, allow_redirects=True)
+
+            # Breach indicators:
+            # 1. HTTP 500 crash
+            if r.status_code == 500:
+                return True
+            # 2. XSS reflection
+            if "xss" in breach.get("type", "").lower() and payload and str(payload) in r.text:
+                return True
+            # 3. SSTI evaluation
+            if "ssti" in breach.get("type", "").lower() and "49" in r.text:
+                return True
+            # 4. Path traversal leak
+            if "traversal" in breach.get("type", "").lower() and "root:" in r.text:
+                return True
+
+            return False
+        except Exception:
+            return True
+
+    def test_legitimate_behavior(self, project_dir: str, route: str) -> bool:
+        """
+        Verifies that legitimate functionality on the route and base URL still works.
+        """
+        session = requests.Session()
+        try:
+            r_home = session.get(f"{self.base_url}/", timeout=3)
+            if r_home.status_code >= 500:
+                return False
+            target_url = f"{self.base_url}{route if route.startswith('/') else '/' + route}"
+            r_route = session.get(target_url, timeout=3)
+            if r_route.status_code >= 500:
+                return False
+            return True
+        except Exception:
+            return False
+
 
 class BuilderAgent:
     """
@@ -534,12 +598,87 @@ class AdversarialArena:
         self.max_rounds = max_rounds
         self.duel_logs = []
         self.total_breaches = 0
-        self.verified_patches = 0
-        self.unresolved_breaches = 0
+        self.verified_fixes = 0
+        self.unresolved = 0
+
+    @property
+    def verified_patches(self) -> int:
+        return self.verified_fixes
+
+    @verified_patches.setter
+    def verified_patches(self, val: int):
+        self.verified_fixes = val
+
+    @property
+    def unresolved_breaches(self) -> int:
+        return self.unresolved
+
+    @unresolved_breaches.setter
+    def unresolved_breaches(self, val: int):
+        self.unresolved = val
 
     @property
     def total_patches(self) -> int:
-        return self.verified_patches
+        return self.verified_fixes
+
+    def _save_verification_artifacts(self, project_dir: str, breach: Dict[str, Any]):
+        """Saves poc.json and regression_test.py for a verified defensive fix."""
+        # 1. Save poc.json
+        poc_data = {
+            "vuln_type": breach.get("type"),
+            "route": breach.get("route"),
+            "method": breach.get("method"),
+            "payload": breach.get("payload"),
+            "status_code": breach.get("status_code"),
+            "details": breach.get("details"),
+            "verified": True,
+            "timestamp": time.time()
+        }
+        poc_path = os.path.join(project_dir, "poc.json")
+        try:
+            with open(poc_path, "w", encoding="utf-8") as f_poc:
+                json.dump(poc_data, f_poc, indent=2)
+        except Exception:
+            pass
+
+        # 2. Save regression_test.py
+        route = breach.get("route", "/")
+        method = breach.get("method", "GET").upper()
+        payload = breach.get("payload")
+        reg_code = f'''"""
+Auto-generated regression test for verified defensive fix.
+Vulnerability: {breach.get("type")}
+Target: {method} {route}
+"""
+import requests
+
+def test_regression():
+    base_url = "http://127.0.0.1:5000"
+    url = f"{{base_url}}{route}"
+    payload = {repr(payload)}
+    method = "{method}"
+    
+    # 1. Probe replay: must not crash with 500
+    if method == "POST":
+        r = requests.post(url, data=payload if isinstance(payload, dict) else {{"data": payload}}, timeout=3)
+    else:
+        r = requests.get(url, params={{"q": payload}} if payload else {{}}, timeout=3)
+    assert r.status_code != 500, f"Server crashed with 500 on payload replay: {{payload}}"
+    
+    # 2. Legitimate request check
+    r_home = requests.get(base_url + "/", timeout=3)
+    assert r_home.status_code < 500, "Base homepage failed legitimate request check"
+
+if __name__ == "__main__":
+    test_regression()
+    print("Regression test passed successfully.")
+'''
+        reg_path = os.path.join(project_dir, "regression_test.py")
+        try:
+            with open(reg_path, "w", encoding="utf-8") as f_reg:
+                f_reg.write(reg_code)
+        except Exception:
+            pass
 
     def conduct_duel(self, project_dir: str, restart_server_callback) -> bool:
         """
@@ -559,13 +698,13 @@ class AdversarialArena:
             breaches = self.hacker.run_attack_round(project_dir, round_tier=round_num)
 
             if not breaches:
-                log_hacker(f"Round {round_num}: Bah! I couldn't break the endpoints this wave. App held up.")
+                log_hacker(f"Round {round_num}: No breaches discovered this wave. App held up.")
                 log_builder(f"Round {round_num}: Defenses held strong against all tier {round_num} probes.")
                 self.duel_logs.append({
                     "round": round_num,
                     "status": "SURVIVED",
                     "breaches": [],
-                    "verified_patches": 0,
+                    "verified_fixes": 0,
                     "unresolved": 0
                 })
                 time.sleep(1)
@@ -591,39 +730,46 @@ class AdversarialArena:
                     restart_server_callback()
                     time.sleep(2)
                     
-                    # Hacker immediately re-probes the same vector
+                    # Hacker immediately re-probes the vector
                     log_hacker("Re-testing breached vector to verify if your fix holds...")
-                    re_breaches = self.hacker.run_attack_round(project_dir, round_tier=round_num)
-                    still_vulnerable = any(rb["type"] == b["type"] for rb in re_breaches)
-                    if not still_vulnerable:
-                        self.verified_patches += 1
+                    is_still_breached = self.hacker.replay_breach(b)
+                    is_legitimate_ok = self.hacker.test_legitimate_behavior(project_dir, b.get("route", "/"))
+                    
+                    if (not is_still_breached) and is_legitimate_ok:
+                        self.verified_fixes += 1
                         b["status"] = "VERIFIED_PATCHED"
-                        log_hacker(f"Tsk... patch confirmed. Vector '{b['type']}' is now sealed.")
-                        log_builder("Defense verified. System fortified.")
+                        log_hacker(f"Tsk... patch confirmed. Vector '{b['type']}' is sealed and legitimate behavior holds.")
+                        log_builder("Defense verified. System hardened.")
+                        self._save_verification_artifacts(project_dir, b)
                     else:
-                        self.unresolved_breaches += 1
+                        self.unresolved += 1
                         b["status"] = "UNRESOLVED"
-                        log_hacker("Haha! Your fix was incomplete, the hole is still there!")
+                        if is_still_breached:
+                            log_hacker("Haha! Your fix was incomplete, the hole is still there!")
+                        else:
+                            log_hacker("Your patch broke legitimate functionality! Regression check failed.")
                 else:
-                    self.unresolved_breaches += 1
+                    self.unresolved += 1
                     b["status"] = "FAILED_TO_PATCH"
 
             round_unresolved = sum(1 for b in breaches if b.get("status") != "VERIFIED_PATCHED")
-            round_status = "HARDENED" if round_unresolved == 0 else "PARTIALLY_HARDENED"
+            round_status = "HARDENED" if round_unresolved == 0 else "PARTIAL"
 
             self.duel_logs.append({
                 "round": round_num,
                 "status": round_status,
                 "breaches": breaches,
-                "verified_patches": len(breaches) - round_unresolved,
+                "verified_fixes": len(breaches) - round_unresolved,
                 "unresolved": round_unresolved
             })
 
         print("\n" + "=" * 75)
-        if self.unresolved_breaches == 0:
-            print(f"{TerminalColors.SUCCESS}{TerminalColors.BOLD}🎉 ADVERSARIAL COMBAT COMPLETED: APPLICATION FORTIFIED! 🎉{TerminalColors.RESET}")
+        if self.unresolved == 0 and self.total_breaches > 0:
+            print(f"{TerminalColors.SUCCESS}{TerminalColors.BOLD}ADVERSARIAL DUEL FINISHED: All probes passed! ({self.verified_fixes} verified fixes){TerminalColors.RESET}")
+        elif self.total_breaches == 0:
+            print(f"{TerminalColors.CYAN}{TerminalColors.BOLD}ADVERSARIAL DUEL FINISHED: No breaches discovered.{TerminalColors.RESET}")
         else:
-            print(f"{TerminalColors.WARNING}{TerminalColors.BOLD}⚠️ ADVERSARIAL COMBAT COMPLETED: UNRESOLVED VULNERABILITIES REMAIN! ({self.unresolved_breaches} Unresolved) ⚠️{TerminalColors.RESET}")
+            print(f"{TerminalColors.WARNING}{TerminalColors.BOLD}ADVERSARIAL DUEL FINISHED: {self.unresolved} unresolved breach(es) remain! (Verified: {self.verified_fixes}/{self.total_breaches}){TerminalColors.RESET}")
         print("=" * 75)
         
         # Save duel log to project
@@ -638,27 +784,30 @@ class AdversarialArena:
         # Generate standardized Security Audit Scorecard
         self.generate_security_audit_scorecard(project_dir)
 
-        return self.unresolved_breaches == 0
+        return self.unresolved == 0
 
     def generate_security_audit_scorecard(self, project_dir: str):
         """Generates security_audit.json with truthful verified metrics."""
         if self.total_breaches == 0:
-            score = 100
+            score = "no breaches found"
         else:
-            score = int((self.verified_patches / self.total_breaches) * 100)
+            score = f"{int((self.verified_fixes / self.total_breaches) * 100)}%"
 
-        verdict = "FORTIFIED" if (self.unresolved_breaches == 0 and score == 100) else (
-            "PARTIALLY_FORTIFIED" if self.verified_patches > 0 else "VULNERABLE"
-        )
+        if self.unresolved == 0 and self.total_breaches > 0:
+            verdict = "all probes passed"
+        elif self.total_breaches == 0:
+            verdict = "no breaches found"
+        else:
+            verdict = f"{self.unresolved} unresolved"
 
         audit_data = {
             "timestamp": time.time(),
             "target_project": os.path.basename(project_dir),
-            "final_shield_health_score": f"{score}%",
+            "final_shield_health_score": score,
             "total_duel_rounds": self.max_rounds,
             "total_breaches_detected": self.total_breaches,
-            "verified_patches": self.verified_patches,
-            "unresolved_breaches": self.unresolved_breaches,
+            "verified_fixes": self.verified_fixes,
+            "unresolved": self.unresolved,
             "audit_verdict": verdict,
             "basic_security_probes_evaluated": [
                 "404 Route & Boundary Handling",
@@ -677,7 +826,7 @@ class AdversarialArena:
         try:
             with open(audit_file, "w", encoding="utf-8") as f:
                 json.dump(audit_data, f, indent=2)
-            log_arena(f"🛡️ Security Audit Scorecard generated: {audit_file} (Shield Health: {score}%, Verdict: {verdict})")
+            log_arena(f"🛡️ Security Audit Scorecard generated: {audit_file} (Score: {score}, Verdict: {verdict})")
         except Exception:
             pass
 
