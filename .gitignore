@@ -26,3 +26,11 @@ instance/
 
 # Logs
 *.log
+
+# Dynamic Playbook JSON entries (keep directory structure)
+playbook/*.json
+!playbook/.gitkeep
+
+# Benchmark runtime results
+bench/results/
+

@@ -18,7 +18,7 @@ DEFAULT_PLAYBOOK_DIR = os.path.join(root_dir, "playbook")
 
 class PlaybookManager:
     def __init__(self, playbook_dir: Optional[str] = None):
-        self.playbook_dir = playbook_dir or DEFAULT_PLAYBOOK_DIR
+        self.playbook_dir = playbook_dir or os.environ.get("PLAYBOOK_DIR") or DEFAULT_PLAYBOOK_DIR
         os.makedirs(self.playbook_dir, exist_ok=True)
 
     def is_enabled(self) -> bool:

@@ -129,9 +129,10 @@ def test_builder_rejects_syntax_error_patch():
             assert f.read() == original_code
 
 
-def test_verification_artifacts_saved():
+def test_verification_artifacts_saved(monkeypatch):
     arena = AdversarialArena(client=MockLLMClient(""), model="mock-model")
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory() as tmp_dir, tempfile.TemporaryDirectory() as pb_tmp:
+        monkeypatch.setenv("PLAYBOOK_DIR", pb_tmp)
         breach = {
             "type": "Unhandled 404 Route",
             "route": "/probe_endpoint",

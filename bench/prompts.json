@@ -1,0 +1,106 @@
+{
+  "train": [
+    {
+      "id": "train_01",
+      "name": "cafe_pos_system",
+      "prompt": "Build a Flask cafe point-of-sale app with menu items, cart orders, and user checkout"
+    },
+    {
+      "id": "train_02",
+      "name": "task_tracker",
+      "prompt": "Build an authenticated personal task management web app with user login and task completion status"
+    },
+    {
+      "id": "train_03",
+      "name": "blog_engine",
+      "prompt": "Build a simple blogging platform with user accounts, article publication, and post search"
+    },
+    {
+      "id": "train_04",
+      "name": "contact_directory",
+      "prompt": "Build an internal address book and contact search app with profile editing and tag filtering"
+    },
+    {
+      "id": "train_05",
+      "name": "inventory_manager",
+      "prompt": "Build an inventory tracking system with stock levels, item categories, and low-stock alerts"
+    },
+    {
+      "id": "train_06",
+      "name": "feedback_collector",
+      "prompt": "Build a customer feedback survey tool with rating submissions and feedback summary list"
+    },
+    {
+      "id": "train_07",
+      "name": "bookmark_vault",
+      "prompt": "Build a personal URL bookmark manager with tag search and privacy toggles"
+    },
+    {
+      "id": "train_08",
+      "name": "simple_forum",
+      "prompt": "Build a mini discussion forum with topic creation, user comments, and category views"
+    },
+    {
+      "id": "train_09",
+      "name": "expense_logger",
+      "prompt": "Build a daily expense logger with expense category tracking and monthly expenditure totals"
+    },
+    {
+      "id": "train_10",
+      "name": "recipe_notebook",
+      "prompt": "Build a cooking recipe notebook where users add ingredients, cooking steps, and browse recipes"
+    }
+  ],
+  "held_out_test": [
+    {
+      "id": "test_01",
+      "name": "event_rsvp_manager",
+      "prompt": "Build an event RSVP web app where attendees register tickets and organizers view attendee lists"
+    },
+    {
+      "id": "test_02",
+      "name": "employee_timesheet",
+      "prompt": "Build an employee timesheet tracking system with shift hour logging and weekly summary reports"
+    },
+    {
+      "id": "test_03",
+      "name": "library_catalog",
+      "prompt": "Build a community library book checkout system with ISBN search and borrower records"
+    },
+    {
+      "id": "test_04",
+      "name": "support_ticket_desk",
+      "prompt": "Build an IT helpdesk support ticketing system with priority tags and agent assignment"
+    },
+    {
+      "id": "test_05",
+      "name": "hotel_room_booking",
+      "prompt": "Build a boutique hotel room reservation app with room selection, date picker, and guest booking"
+    },
+    {
+      "id": "test_06",
+      "name": "student_gradebook",
+      "prompt": "Build a student gradebook app with subject score recording and GPA calculation"
+    },
+    {
+      "id": "test_07",
+      "name": "service_appointment_scheduler",
+      "prompt": "Build a salon or clinic appointment scheduler with time-slot booking and customer confirmation"
+    },
+    {
+      "id": "test_08",
+      "name": "quiz_creator",
+      "prompt": "Build an online quiz creator app where teachers draft multiple-choice questions and students submit answers"
+    },
+    {
+      "id": "test_09",
+      "name": "digital_asset_catalog",
+      "prompt": "Build a creative digital asset catalog with download links, file metadata, and license tags"
+    },
+    {
+      "id": "test_10",
+      "name": "fleet_vehicle_log",
+      "prompt": "Build a vehicle fleet maintenance logger with mileage recording, service dates, and driver checkouts"
+    }
+  ]
+}
