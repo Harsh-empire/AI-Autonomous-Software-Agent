@@ -6,6 +6,34 @@ To my knowledge, AEGIS is among the first open-source developer environments to 
 
 ---
 
+## ⚡ Quickstart (Run from Fresh Clone in 3 Commands)
+
+```bash
+git clone https://github.com/Harsh-empire/AI-Autonomous-Software-Agent.git && cd AI-Autonomous-Software-Agent
+pip install -r requirements.txt
+python ide_server.py
+```
+*(Or via Docker Sandbox: `docker compose up -d`)*
+
+### Expected Output
+```text
+INFO:     Started server process [PID]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+```
+Navigate to **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in your browser.
+
+### Common Errors & Solutions
+- **Ollama daemon not running (`Connection refused: 127.0.0.1:11434`):**
+  Start Ollama in a separate terminal: `ollama serve` (or launch the Ollama system tray application).
+- **Model not pulled (`model 'qwen2.5-coder:7b' not found`):**
+  Pull the required coding model: `ollama pull qwen2.5-coder:7b`.
+- **Docker daemon not installed or stopped:**
+  Ensure Docker Desktop / daemon is active, or use local Python execution via `python ide_server.py`.
+
+---
+
 ## What AEGIS Is and Is NOT
 
 ### What AEGIS Is

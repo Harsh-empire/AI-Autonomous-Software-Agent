@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEGIS Read-Only Transcript & Benchmark Replay</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="logo">
+        <span class="shield-icon">🛡️</span>
+        <div>
+          <h1>AEGIS Demo & Transcript Replay</h1>
+          <p class="subtitle">Read-only viewer for real duel transcripts and empirical benchmarks</p>
+        </div>
+      </div>
+      <div class="badge">Static Mode &bull; No Backend Required</div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Notice Banner -->
+    <div class="info-box">
+      <strong>Notice:</strong> This static demo page strictly replays data from real files in the repository (<code>adversarial_duel_log.json</code> or <code>results.csv</code>). If files have not been generated yet, it will display <em>"no data yet"</em>. Fake or synthetic data is never shown.
+    </div>
+
+    <!-- Section 1: Duel Transcript Replay -->
+    <section class="card">
+      <div class="card-header">
+        <h2>⚔️ Adversarial Duel Transcript Replay</h2>
+        <div class="actions">
+          <input type="file" id="duelFileInput" accept=".json" style="display:none">
+          <button class="btn btn-secondary" onclick="document.getElementById('duelFileInput').click()">Upload Log JSON</button>
+          <button class="btn btn-primary" id="btnLoadDefaultDuel">Load Local Transcript</button>
+        </div>
+      </div>
+      
+      <div id="duelContainer">
+        <div class="empty-state" id="duelEmptyState">
+          <div class="empty-icon">📁</div>
+          <h3>No Duel Data Yet</h3>
+          <p>No <code>adversarial_duel_log.json</code> file found. Run a duel via the AEGIS Web IDE or CLI to generate a transcript, or upload an exported log JSON above.</p>
+        </div>
+        <div id="duelContent" style="display: none;">
+          <!-- Populated by app.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 2: Benchmark Results Viewer -->
+    <section class="card">
+      <div class="card-header">
+        <h2>📊 Empirical Benchmark Results</h2>
+        <div class="actions">
+          <input type="file" id="benchFileInput" accept=".csv" style="display:none">
+          <button class="btn btn-secondary" onclick="document.getElementById('benchFileInput').click()">Upload CSV</button>
+          <button class="btn btn-primary" id="btnLoadDefaultBench">Load bench/results/results.csv</button>
+        </div>
+      </div>
+      
+      <div id="benchContainer">
+        <div class="empty-state" id="benchEmptyState">
+          <div class="empty-icon">📈</div>
+          <h3>No Benchmark Data Yet</h3>
+          <p>No <code>bench/results/results.csv</code> file found. Run the benchmark suite to generate empirical results:</p>
+          <code>python bench/run_benchmark.py --config A B C D E</code>
+        </div>
+        <div id="benchContent" style="display: none;">
+          <!-- Populated by app.js -->
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-content">
+      <p>AEGIS Open Source &bull; Dual-AI Development & Verified Patch Gate Architecture</p>
+      <p><a href="../../README.md">Back to Documentation</a></p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
