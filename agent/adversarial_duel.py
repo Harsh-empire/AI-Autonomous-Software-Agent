@@ -29,7 +29,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from openai import OpenAI
 try:
     from agent.hacker_suite_generator import scan_flask_endpoints, ADVERSARIAL_PAYLOADS
@@ -445,22 +445,170 @@ class HackerAgent:
         except Exception:
             return True
 
-    def test_legitimate_behavior(self, project_dir: str, route: str) -> bool:
+    def capture_baseline(self, route: str = "/") -> Dict[str, Optional[int]]:
         """
-        Verifies that legitimate functionality on the route and base URL still works.
+        Records the HTTP status of legitimate (non-attack) requests BEFORE a patch is
+        applied, so that the patch can later be checked for functional regressions.
+        A status of None means the server could not be reached.
         """
-        session = requests.Session()
-        try:
-            r_home = session.get(f"{self.base_url}/", timeout=3)
-            if r_home.status_code >= 500:
-                return False
-            target_url = f"{self.base_url}{route if route.startswith('/') else '/' + route}"
-            r_route = session.get(target_url, timeout=3)
-            if r_route.status_code >= 500:
-                return False
-            return True
-        except Exception:
+        baseline: Dict[str, Optional[int]] = {}
+        route = route if route.startswith("/") else "/" + route
+        for path in ("/", route):
+            try:
+                r = requests.get(f"{self.base_url}{path}", timeout=3, allow_redirects=False)
+                baseline[path] = r.status_code
+            except Exception:
+                baseline[path] = None
+        return baseline
+
+    @staticmethod
+    def legit_status_ok(before: Optional[int], after: Optional[int]) -> bool:
+        """
+        Compares a legitimate request's status before and after a patch.
+        A patch must not turn a working page into an error, must not crash the
+        server, and must not make an existing route disappear (404).
+        """
+        if after is None or after >= 500:
             return False
+        if before is None:
+            return True  # no baseline available: only require "does not crash"
+        if before < 400 and after >= 400:
+            return False  # was working (2xx/3xx), now an error or removed
+        if before != 404 and after == 404:
+            return False  # route disappeared
+        return True
+
+    def test_legitimate_behavior(self, project_dir: str, route: str,
+                                 baseline: Optional[Dict[str, Optional[int]]] = None) -> bool:
+        """
+        Verifies that legitimate functionality on the route and on "/" still works.
+        With a baseline (captured before the patch) a patch that removes the route
+        (404) or breaks a working page is rejected. Without a baseline this only
+        guards against crashes (HTTP 5xx), which is a weaker check.
+        """
+        route = route if route.startswith("/") else "/" + route
+        for path in ("/", route):
+            try:
+                r = requests.get(f"{self.base_url}{path}", timeout=3, allow_redirects=False)
+            except Exception:
+                return False
+            before = (baseline or {}).get(path)
+            if not self.legit_status_ok(before, r.status_code):
+                return False
+        return True
+
+
+def verify_patch(hacker: "HackerAgent", project_dir: str, breach: Dict[str, Any],
+                 baseline: Optional[Dict[str, Optional[int]]] = None) -> Tuple[bool, str]:
+    """
+    Single Verified Patch Gate used by every duel loop (CLI arena and web IDE).
+    A patch is verified only if the exact breach request no longer reproduces the
+    breach AND legitimate requests still behave as they did before the patch.
+    Returns (verified, reason) with reason in {"verified", "breach_persists", "regression"}.
+    """
+    if hacker.replay_breach(breach):
+        return False, "breach_persists"
+    if not hacker.test_legitimate_behavior(project_dir, breach.get("route", "/"), baseline):
+        return False, "regression"
+    return True, "verified"
+
+
+def save_verification_artifacts(project_dir: str, breach: Dict[str, Any], builder: Any = None,
+                                baseline: Optional[Dict[str, Optional[int]]] = None) -> None:
+    """
+    Saves evidence for ONE verified fix and ingests it into the verified-only playbook.
+    - verification/poc_NN.json and verification/regression_test_NN.py keep every fix.
+    - poc.json and regression_test.py always hold the most recent fix (legacy names).
+    """
+    route = breach.get("route", "/")
+    method = breach.get("method", "GET").upper()
+    payload = breach.get("payload")
+    poc_data = {
+        "vuln_type": breach.get("type"),
+        "route": route,
+        "method": method,
+        "payload": payload,
+        "status_code": breach.get("status_code"),
+        "details": breach.get("details"),
+        "baseline_status": baseline or {},
+        "verified": True,
+        "timestamp": time.time(),
+    }
+    reg_code = f'''"""
+Auto-generated regression test for a verified defensive fix.
+Vulnerability: {breach.get("type")}
+Target: {method} {route}
+Run with the target app listening on 127.0.0.1:5000.
+"""
+import requests
+
+BASE_URL = "http://127.0.0.1:5000"
+ROUTE = {route!r}
+METHOD = {method!r}
+PAYLOAD = {payload!r}
+# Status codes of legitimate requests recorded BEFORE the patch (None = unreachable).
+BASELINE = {(baseline or {})!r}
+
+
+def test_regression():
+    url = BASE_URL + (ROUTE if ROUTE.startswith("/") else "/" + ROUTE)
+
+    # 1. Exact probe replay: must not crash the server.
+    if METHOD == "POST":
+        r = requests.post(url, data=PAYLOAD if isinstance(PAYLOAD, dict) else {{"data": PAYLOAD}}, timeout=3)
+    else:
+        r = requests.get(url, params={{"q": PAYLOAD}} if PAYLOAD else {{}}, timeout=3)
+    assert r.status_code != 500, "Server crashed with 500 on payload replay"
+
+    # 2. Legitimate requests must behave as they did before the patch.
+    for path, before in BASELINE.items():
+        after = requests.get(BASE_URL + path, timeout=3, allow_redirects=False).status_code
+        assert after < 500, f"{{path}} now returns {{after}}"
+        if before is not None:
+            assert not (before < 400 and after >= 400), f"{{path}} was {{before}}, now {{after}}"
+            assert not (before != 404 and after == 404), f"{{path}} disappeared (404)"
+
+
+if __name__ == "__main__":
+    test_regression()
+    print("Regression test passed successfully.")
+'''
+
+    def _write(path: str, content: str) -> None:
+        try:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(content)
+        except Exception:
+            pass
+
+    poc_json = json.dumps(poc_data, indent=2)
+    _write(os.path.join(project_dir, "poc.json"), poc_json)
+    _write(os.path.join(project_dir, "regression_test.py"), reg_code)
+
+    try:
+        vdir = os.path.join(project_dir, "verification")
+        os.makedirs(vdir, exist_ok=True)
+        n = len([f for f in os.listdir(vdir) if f.startswith("poc_") and f.endswith(".json")]) + 1
+        _write(os.path.join(vdir, f"poc_{n:02d}.json"), poc_json)
+        _write(os.path.join(vdir, f"regression_test_{n:02d}.py"), reg_code)
+    except Exception:
+        pass
+
+    # Ingest into the verified-only playbook (it refuses anything unverified).
+    try:
+        from agent.playbook import PlaybookManager
+        pm = PlaybookManager()
+        if pm.is_enabled():
+            info = getattr(builder, "last_patch_info", None) or {}
+            pm.add_verified_entry(
+                vuln_type=breach.get("type", "General"),
+                pattern_desc=breach.get("details", "Defensive mitigation"),
+                safe_snippet=info.get("diff", "")[:300],
+                poc=poc_data,
+                model=getattr(builder, "model", "unknown"),
+            )
+    except Exception:
+        pass
 
 
 class BuilderAgent:
@@ -581,10 +729,32 @@ Produce the COMPLETE updated app.py that DEFENDS against this vulnerability:
         except Exception:
             pass
 
+        # Remember the pre-patch code so an unverified patch can be rolled back.
+        self._rollback_state = (app_path, current_code)
+
         with open(app_path, "w", encoding="utf-8") as f:
             f.write(patched_code)
 
         log_builder(f"Applied defensive hardening patch to '{app_file}'! (+{diff_str.count('+')}/-{diff_str.count('-')} lines diff)")
+        return True
+
+
+    def rollback_last_patch(self) -> bool:
+        """
+        Restores the file changed by the last applied patch to its pre-patch content.
+        Used when a patch fails the Verified Patch Gate: only verified patches stay.
+        """
+        state = getattr(self, "_rollback_state", None)
+        if not state:
+            return False
+        app_path, original_code = state
+        try:
+            with open(app_path, "w", encoding="utf-8", newline="") as f:
+                f.write(original_code)
+        except Exception:
+            return False
+        self._rollback_state = None
+        log_builder("Unverified patch rolled back: only verified patches are kept.")
         return True
 
 
@@ -621,79 +791,10 @@ class AdversarialArena:
     def total_patches(self) -> int:
         return self.verified_fixes
 
-    def _save_verification_artifacts(self, project_dir: str, breach: Dict[str, Any]):
-        """Saves poc.json and regression_test.py for a verified defensive fix."""
-        # 1. Save poc.json
-        poc_data = {
-            "vuln_type": breach.get("type"),
-            "route": breach.get("route"),
-            "method": breach.get("method"),
-            "payload": breach.get("payload"),
-            "status_code": breach.get("status_code"),
-            "details": breach.get("details"),
-            "verified": True,
-            "timestamp": time.time()
-        }
-        poc_path = os.path.join(project_dir, "poc.json")
-        try:
-            with open(poc_path, "w", encoding="utf-8") as f_poc:
-                json.dump(poc_data, f_poc, indent=2)
-        except Exception:
-            pass
-
-        # 2. Save regression_test.py
-        route = breach.get("route", "/")
-        method = breach.get("method", "GET").upper()
-        payload = breach.get("payload")
-        reg_code = f'''"""
-Auto-generated regression test for verified defensive fix.
-Vulnerability: {breach.get("type")}
-Target: {method} {route}
-"""
-import requests
-
-def test_regression():
-    base_url = "http://127.0.0.1:5000"
-    url = f"{{base_url}}{route}"
-    payload = {repr(payload)}
-    method = "{method}"
-    
-    # 1. Probe replay: must not crash with 500
-    if method == "POST":
-        r = requests.post(url, data=payload if isinstance(payload, dict) else {{"data": payload}}, timeout=3)
-    else:
-        r = requests.get(url, params={{"q": payload}} if payload else {{}}, timeout=3)
-    assert r.status_code != 500, f"Server crashed with 500 on payload replay: {{payload}}"
-    
-    # 2. Legitimate request check
-    r_home = requests.get(base_url + "/", timeout=3)
-    assert r_home.status_code < 500, "Base homepage failed legitimate request check"
-
-if __name__ == "__main__":
-    test_regression()
-    print("Regression test passed successfully.")
-'''
-        reg_path = os.path.join(project_dir, "regression_test.py")
-        try:
-            with open(reg_path, "w", encoding="utf-8") as f_reg:
-                f_reg.write(reg_code)
-        except Exception:
-            pass
-
-        # 3. Ingest into Verified Playbook
-        try:
-            from agent.playbook import PlaybookManager
-            pm = PlaybookManager()
-            if pm.is_enabled():
-                pm.add_verified_entry(
-                    vuln_type=breach.get("type", "General"),
-                    pattern_desc=breach.get("details", "Defensive mitigation"),
-                    safe_snippet=self.builder.last_patch_info.get("diff", "")[:300] if self.builder.last_patch_info else "",
-                    poc=poc_data,
-                    model=self.builder.model
-                )
-        except Exception:
-            pass
+    def _save_verification_artifacts(self, project_dir: str, breach: Dict[str, Any],
+                                     baseline: Optional[Dict[str, Optional[int]]] = None):
+        """Saves poc/regression artifacts for a verified fix (see save_verification_artifacts)."""
+        save_verification_artifacts(project_dir, breach, builder=self.builder, baseline=baseline)
 
     def conduct_duel(self, project_dir: str, restart_server_callback) -> bool:
         """
@@ -738,6 +839,9 @@ if __name__ == "__main__":
                 retort = self.builder.counter_argument(b)
                 log_builder(f"\"{retort}\"")
 
+                # Record how legitimate requests behave BEFORE the patch (regression baseline)
+                baseline = self.hacker.capture_baseline(b.get("route", "/"))
+
                 # Builder attempts defensive repair
                 repaired = self.builder.generate_targeted_defense(project_dir, b)
                 if repaired:
@@ -747,19 +851,21 @@ if __name__ == "__main__":
                     
                     # Hacker immediately re-probes the vector
                     log_hacker("Re-testing breached vector to verify if your fix holds...")
-                    is_still_breached = self.hacker.replay_breach(b)
-                    is_legitimate_ok = self.hacker.test_legitimate_behavior(project_dir, b.get("route", "/"))
-                    
-                    if (not is_still_breached) and is_legitimate_ok:
+                    verified, reason = verify_patch(self.hacker, project_dir, b, baseline)
+
+                    if verified:
                         self.verified_fixes += 1
                         b["status"] = "VERIFIED_PATCHED"
                         log_hacker(f"Tsk... patch confirmed. Vector '{b['type']}' is sealed and legitimate behavior holds.")
                         log_builder("Defense verified. System hardened.")
-                        self._save_verification_artifacts(project_dir, b)
+                        self._save_verification_artifacts(project_dir, b, baseline)
                     else:
                         self.unresolved += 1
                         b["status"] = "UNRESOLVED"
-                        if is_still_breached:
+                        if self.builder.rollback_last_patch():
+                            restart_server_callback()
+                            time.sleep(2)
+                        if reason == "breach_persists":
                             log_hacker("Haha! Your fix was incomplete, the hole is still there!")
                         else:
                             log_hacker("Your patch broke legitimate functionality! Regression check failed.")

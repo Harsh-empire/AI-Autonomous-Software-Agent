@@ -27,7 +27,9 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from agent.adversarial_duel import BuilderAgent, HackerAgent, AdversarialArena
+from agent.adversarial_duel import (
+    BuilderAgent, HackerAgent, AdversarialArena, verify_patch, save_verification_artifacts,
+)
 from agent.hacker_suite_generator import scan_flask_endpoints, ADVERSARIAL_PAYLOADS
 from agent.run_adversarial_arena import find_python_executable
 from agent.main import analyze_requirements, create_project_structure, generate_code
@@ -327,11 +329,19 @@ async def trigger_chaos_attack(req: ChaosAttackRequest):
         return {"breach": None, "patched": False}
 
     breach = breaches[0]
+    baseline = hacker.capture_baseline(breach.get("route", "/"))
     patched = builder.generate_targeted_defense(proj_dir, breach)
     diff_content = builder.last_patch_info.get("diff", "") if (builder.last_patch_info) else ""
     if patched:
         restart_target_server(proj_dir)
-        return {"breach": breach, "patched": True, "file": "app.py", "diff": diff_content}
+        await asyncio.sleep(1)
+        verified, reason = verify_patch(hacker, proj_dir, breach, baseline)
+        if verified:
+            save_verification_artifacts(proj_dir, breach, builder=builder, baseline=baseline)
+        elif builder.rollback_last_patch():
+            restart_target_server(proj_dir)
+        return {"breach": breach, "patched": True, "verified": verified, "reason": reason,
+                "rolled_back": not verified, "file": "app.py", "diff": diff_content}
     return {"breach": breach, "patched": False}
 
 
@@ -412,6 +422,7 @@ async def websocket_arena_stream(websocket: WebSocket):
                 total_breaches_count = 0
                 verified_patches_count = 0
                 unresolved_count = 0
+                duel_logs = []
 
                 for r in range(1, rounds + 1):
                     await websocket.send_json({
@@ -426,6 +437,8 @@ async def websocket_arena_stream(websocket: WebSocket):
                         builder_defense = "Defenses held against tier probes this round."
                         await websocket.send_json({"type": "speech", "speaker": "HACKER AI", "text": hacker_taunt, "avatar": "😈"})
                         await websocket.send_json({"type": "speech", "speaker": "BUILDER AI", "text": builder_defense, "avatar": "🛠️"})
+                        duel_logs.append({"round": r, "status": "NO_BREACHES", "breaches": [],
+                                          "verified_fixes": 0, "unresolved": 0})
                     else:
                         total_breaches_count += len(breaches)
                         for b in breaches:
@@ -438,6 +451,9 @@ async def websocket_arena_stream(websocket: WebSocket):
                             b_speech = builder.counter_argument(b)
                             await websocket.send_json({"type": "speech", "speaker": "BUILDER AI", "text": b_speech, "avatar": "🛠️"})
 
+                            # Record legitimate-request behaviour BEFORE patching (regression baseline)
+                            baseline = hacker.capture_baseline(b.get("route", "/"))
+
                             # Builder patches
                             repaired = builder.generate_targeted_defense(proj_dir, b)
                             if repaired:
@@ -447,41 +463,78 @@ async def websocket_arena_stream(websocket: WebSocket):
                                 await websocket.send_json({"type": "server_restart", "url": "http://127.0.0.1:5000"})
                                 await asyncio.sleep(1)
 
-                                # Verify if patch held
-                                re_breaches = hacker.run_attack_round(proj_dir, round_tier=r)
-                                still_vulnerable = any(rb["type"] == b["type"] for rb in re_breaches)
-                                if not still_vulnerable:
+                                # Verified Patch Gate (same gate as the CLI arena): the exact breach
+                                # request must no longer reproduce AND legitimate requests must
+                                # behave as before the patch (no removed route, no new errors).
+                                verified, reason = verify_patch(hacker, proj_dir, b, baseline)
+                                if verified:
                                     verified_patches_count += 1
+                                    b["status"] = "VERIFIED_PATCHED"
+                                    save_verification_artifacts(proj_dir, b, builder=builder, baseline=baseline)
                                     await websocket.send_json({
                                         "type": "speech",
                                         "speaker": "BUILDER AI",
-                                        "text": f"Patch verified against re-test. Probe sealed.",
+                                        "text": "Patch verified: the exact probe no longer reproduces and legitimate requests still work.",
                                         "avatar": "🛠️"
                                     })
                                 else:
                                     unresolved_count += 1
+                                    b["status"] = "UNRESOLVED"
+                                    rolled_back = builder.rollback_last_patch()
+                                    if rolled_back:
+                                        restart_target_server(proj_dir)
+                                        await websocket.send_json({"type": "server_restart", "url": "http://127.0.0.1:5000"})
+                                    why = ("Fix failed re-test: the probe still reproduces."
+                                           if reason == "breach_persists"
+                                           else "Patch rejected: it broke or removed legitimate behaviour (regression check failed).")
+                                    if rolled_back:
+                                        why += " The patch was rolled back."
                                     await websocket.send_json({
                                         "type": "speech",
                                         "speaker": "HACKER AI",
-                                        "text": "Fix failed re-test: vulnerability is still present.",
+                                        "text": why,
                                         "avatar": "😈"
                                     })
                             else:
                                 unresolved_count += 1
+                                b["status"] = "FAILED_TO_PATCH"
 
-                score = 100 if total_breaches_count == 0 else int((verified_patches_count / total_breaches_count) * 100)
-                if unresolved_count == 0:
-                    await websocket.send_json({
-                        "type": "fortified",
-                        "score": score,
-                        "text": f"Arena duel completed: All {verified_patches_count} breach(es) verified and resolved (Score: {score}%)."
-                    })
-                else:
+                        round_unresolved = sum(1 for b in breaches if b.get("status") != "VERIFIED_PATCHED")
+                        duel_logs.append({
+                            "round": r,
+                            "status": "HARDENED" if round_unresolved == 0 else "PARTIAL",
+                            "breaches": breaches,
+                            "verified_fixes": len(breaches) - round_unresolved,
+                            "unresolved": round_unresolved,
+                        })
+
+                # Persist security_audit.json + report.md for this UI duel (same as the CLI arena)
+                try:
+                    arena = AdversarialArena(client=client, model=resolved_model, max_rounds=rounds)
+                    arena.total_breaches = total_breaches_count
+                    arena.verified_fixes = verified_patches_count
+                    arena.unresolved = unresolved_count
+                    arena.duel_logs = duel_logs
+                    arena.generate_security_audit_scorecard(proj_dir)
+                except Exception:
+                    pass
+
+                if total_breaches_count == 0:
                     await websocket.send_json({
                         "type": "duel_completed",
+                        "score": None,
+                        "unresolved": 0,
+                        "text": f"No breaches found in {rounds} round(s) of basic probes. This does not prove the app is secure."
+                    })
+                else:
+                    score = int((verified_patches_count / total_breaches_count) * 100)
+                    summary = (f"{verified_patches_count}/{total_breaches_count} breach(es) verified fixed, "
+                               f"{unresolved_count} unresolved (verified-fix rate: {score}%).")
+                    await websocket.send_json({
+                        "type": "duel_all_verified" if unresolved_count == 0 else "duel_completed",
                         "score": score,
                         "unresolved": unresolved_count,
-                        "text": f"Arena duel concluded: {verified_patches_count} verified, {unresolved_count} unresolved (Score: {score}%)."
+                        "text": ("All probes passed: " if unresolved_count == 0 else "Duel finished: ") + summary
                     })
 
             elif action == "start_build":

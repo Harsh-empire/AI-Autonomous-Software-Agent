@@ -329,14 +329,13 @@ document.addEventListener("DOMContentLoaded", () => {
             loadFileContent(currentProject, "app.py");
             reloadPreview();
             appendSystemNotice(`📁 Switched active workspace to: '${currentProject}'`);
-        } else if (msg.type === "fortified") {
-            const score = msg.score !== undefined ? msg.score : 100;
-            updateShield(score);
-            appendSystemNotice(msg.text || `🎉 APPLICATION FORTIFIED: All attack vectors repelled!`);
+        } else if (msg.type === "duel_all_verified") {
+            // Server sends this only when every detected breach was verified fixed.
+            updateShield(msg.score);
+            appendSystemNotice(msg.text || `✅ All probes passed: every detected breach was verified fixed.`);
         } else if (msg.type === "duel_completed") {
-            const score = msg.score !== undefined ? msg.score : 60;
-            updateShield(score);
-            appendSystemNotice(msg.text || `⚠️ Duel completed with unresolved vulnerabilities.`);
+            updateShield(msg.score);
+            appendSystemNotice(msg.text || `⚠️ Duel finished. See the security audit for details.`);
         } else if (msg.type === "error") {
             appendSystemNotice(`❌ Error: ${msg.text}`);
         } else if (msg.type === "info") {
@@ -395,6 +394,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function updateShield(score) {
         if (!shieldScore || !shieldBar) return;
+        // No measured score (duel not run yet, or no breaches found): show a neutral placeholder.
+        if (score === null || score === undefined || Number.isNaN(Number(score))) {
+            shieldScore.textContent = "--";
+            shieldBar.style.width = "0%";
+            return;
+        }
         shieldScore.textContent = `${score}%`;
         shieldBar.style.width = `${score}%`;
         if (score === 100) {
@@ -655,7 +660,13 @@ document.addEventListener("DOMContentLoaded", () => {
                         appendBreachCard(data.breach);
                         appendSpeechBubble("BUILDER AI", "Breach confirmed. Synthesizing instant defensive patch...", "🛠️");
                         if (data.patched) {
-                            appendSystemNotice(`✅ Defensive patch verified and applied to ${data.file}!`);
+                            if (data.verified) {
+                                appendSystemNotice(`✅ Patch verified (probe sealed, legitimate requests still work) and applied to ${data.file}.`);
+                            } else if (data.reason === "breach_persists") {
+                                appendSystemNotice(`⚠️ Patch rejected: the probe still reproduces. The patch was rolled back.`);
+                            } else {
+                                appendSystemNotice(`⚠️ Patch rejected: it broke or removed legitimate behaviour. The patch was rolled back.`);
+                            }
                             if (data.diff) {
                                 renderDiff(data.diff);
                             }
@@ -663,9 +674,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             reloadPreview();
                         }
                     } else {
-                        appendSpeechBubble("HACKER AI", "Vector blocked! Defenses repelled the payload.", "😈");
-                        appendSpeechBubble("BUILDER AI", "System hardened. All inputs sanitized.", "🛠️");
-                        updateShield(100);
+                        // One probe only: this is not a security score and must not change the shield.
+                        appendSpeechBubble("HACKER AI", "This single probe did not breach the app.", "😈");
+                        appendSystemNotice("ℹ️ One blocked probe is not proof of security. Run the full duel for a measured result.");
                     }
                 } catch (e) {
                     console.error("Attack failed:", e);
