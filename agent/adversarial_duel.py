@@ -69,6 +69,7 @@ class HackerAgent:
         self.client = client
         self.model = model
         self.base_url = base_url
+        self.probes_count = 0
 
     def trash_talk(self, context: str) -> str:
         """Hacker AI taunts the Builder AI based on discovered vulnerabilities."""
@@ -100,6 +101,19 @@ class HackerAgent:
         forms = scan_results["forms"]
 
         session = requests.Session()
+        orig_get = session.get
+        orig_post = session.post
+
+        def tracking_get(*args, **kwargs):
+            self.probes_count += 1
+            return orig_get(*args, **kwargs)
+
+        def tracking_post(*args, **kwargs):
+            self.probes_count += 1
+            return orig_post(*args, **kwargs)
+
+        session.get = tracking_get
+        session.post = tracking_post
 
         # =====================================================================
         # TIER 1: SANITY, BOUNDARIES, UNICODE & NON-EXISTENT ENDPOINTS
@@ -197,6 +211,7 @@ class HackerAgent:
             
             # Test protected routes directly with a fresh unauthenticated session
             unauth_session = requests.Session()
+            unauth_session.get = tracking_get
             protected_routes = ["/tasks", "/add_task", "/dashboard", "/delete_task", "/complete_task"]
             
             for ep in endpoints:
@@ -526,7 +541,7 @@ class BuilderAgent:
         """Builder AI acknowledges the issue and commits to a defensive patch."""
         system_prompt = (
             "You are 'The Builder' (Good Cop), a resilient defensive software architect. "
-            "You take pride in writing bulletproof code. Acknowledge the flaw professionally "
+            "You take pride in writing secure, resilient code. Acknowledge the flaw professionally "
             "with determination. Keep your response under 2 sentences."
         )
         try:

@@ -469,19 +469,33 @@ async def websocket_arena_stream(websocket: WebSocket):
                             else:
                                 unresolved_count += 1
 
-                score = 100 if total_breaches_count == 0 else int((verified_patches_count / total_breaches_count) * 100)
-                if unresolved_count == 0:
+                if total_breaches_count == 0:
+                    probes_n = getattr(hacker, "probes_count", 0) or (rounds * 9)
+                    score = f"No breaches found in {probes_n} probes"
                     await websocket.send_json({
                         "type": "fortified",
                         "score": score,
-                        "text": f"Arena duel completed: All {verified_patches_count} breach(es) verified and resolved (Score: {score}%)."
+                        "verified_fixes": 0,
+                        "text": f"All probes passed: 0 verified fixes. {score}."
+                    })
+                elif unresolved_count == 0:
+                    pct = int((verified_patches_count / total_breaches_count) * 100)
+                    score = f"{pct}%"
+                    await websocket.send_json({
+                        "type": "fortified",
+                        "score": score,
+                        "verified_fixes": verified_patches_count,
+                        "text": f"All probes passed: {verified_patches_count} verified fixes"
                     })
                 else:
+                    pct = int((verified_patches_count / total_breaches_count) * 100)
+                    score = f"{pct}%"
                     await websocket.send_json({
                         "type": "duel_completed",
                         "score": score,
+                        "verified_fixes": verified_patches_count,
                         "unresolved": unresolved_count,
-                        "text": f"Arena duel concluded: {verified_patches_count} verified, {unresolved_count} unresolved (Score: {score}%)."
+                        "text": f"Arena duel concluded: {verified_patches_count} verified, {unresolved_count} unresolved (Score: {score})."
                     })
 
             elif action == "start_build":

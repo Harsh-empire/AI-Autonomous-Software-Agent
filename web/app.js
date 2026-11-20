@@ -330,9 +330,10 @@ document.addEventListener("DOMContentLoaded", () => {
             reloadPreview();
             appendSystemNotice(`📁 Switched active workspace to: '${currentProject}'`);
         } else if (msg.type === "fortified") {
-            const score = msg.score !== undefined ? msg.score : 100;
+            const verifiedFixes = msg.verified_fixes !== undefined ? msg.verified_fixes : 0;
+            const score = msg.score !== undefined ? msg.score : (verifiedFixes > 0 ? "100%" : "No breaches found");
             updateShield(score);
-            appendSystemNotice(msg.text || `🎉 APPLICATION FORTIFIED: All attack vectors repelled!`);
+            appendSystemNotice(msg.text || `All probes passed: ${verifiedFixes} verified fixes`);
         } else if (msg.type === "duel_completed") {
             const score = msg.score !== undefined ? msg.score : 60;
             updateShield(score);
@@ -395,12 +396,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function updateShield(score) {
         if (!shieldScore || !shieldBar) return;
-        shieldScore.textContent = `${score}%`;
-        shieldBar.style.width = `${score}%`;
-        if (score === 100) {
-            shieldBar.style.background = "linear-gradient(90deg, #00ff9d, #00d2ff)";
+        if (typeof score === "number") {
+            shieldScore.textContent = `${score}%`;
+            shieldBar.style.width = `${score}%`;
+            if (score === 100) {
+                shieldBar.style.background = "linear-gradient(90deg, #00ff9d, #00d2ff)";
+            } else {
+                shieldBar.style.background = "linear-gradient(90deg, #ff0055, #ffcc00)";
+            }
         } else {
-            shieldBar.style.background = "linear-gradient(90deg, #ff0055, #ffcc00)";
+            const strScore = String(score);
+            shieldScore.textContent = strScore;
+            if (strScore.endsWith("%")) {
+                const numeric = parseInt(strScore, 10) || 0;
+                shieldBar.style.width = `${numeric}%`;
+            } else {
+                shieldBar.style.width = "100%";
+            }
+            shieldBar.style.background = "linear-gradient(90deg, #00ff9d, #00d2ff)";
         }
     }
 
