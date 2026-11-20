@@ -42,6 +42,8 @@ def test_ollama_reachable_fails_loudly_when_offline():
 
 
 def test_results_markdown_and_chart_generation():
+    # The chart needs matplotlib (see bench/requirements.txt); skip only if it is genuinely absent.
+    pytest.importorskip("matplotlib")
     with tempfile.TemporaryDirectory() as tmp_dir:
         sample_records = [
             {

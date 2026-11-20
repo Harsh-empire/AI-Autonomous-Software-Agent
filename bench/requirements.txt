@@ -1,0 +1,3 @@
+# Extra dependencies for the benchmark harness (bench/run_benchmark.py)
+bandit>=1.7.8
+matplotlib>=3.8.0

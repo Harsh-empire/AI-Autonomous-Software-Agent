@@ -31,9 +31,7 @@ def test_safe_join_rejects_parent_traversal():
     traversal_payloads = [
         "..",
         "../",
-        "..\\",
         "../../../../etc/passwd",
-        "..\\..\\..\\windows\\win.ini",
         "subdir/../../parent_leak"
     ]
     for payload in traversal_payloads:
@@ -48,10 +46,26 @@ def test_safe_join_rejects_absolute_path_escape():
     escape_payloads = [
         "/etc/passwd",
         "/var/log/syslog",
-        "C:\\Windows\\System32\\cmd.exe",
-        "D:\\sensitive_data"
     ]
     for payload in escape_payloads:
+        with pytest.raises(HTTPException) as exc_info:
+            safe_join(base, payload)
+        assert exc_info.value.status_code == 400
+
+
+# Backslash separators and drive letters are only path syntax on Windows.
+# On POSIX they are ordinary filename characters, so these payloads are not
+# traversal there and must not be asserted on Linux/macOS.
+@pytest.mark.skipif(os.name != "nt", reason="Windows path syntax only")
+def test_safe_join_rejects_windows_style_payloads():
+    base = os.path.realpath(root_dir)
+    windows_payloads = [
+        "..\\",
+        "..\\..\\..\\windows\\win.ini",
+        "C:\\Windows\\System32\\cmd.exe",
+        "D:\\sensitive_data",
+    ]
+    for payload in windows_payloads:
         with pytest.raises(HTTPException) as exc_info:
             safe_join(base, payload)
         assert exc_info.value.status_code == 400
