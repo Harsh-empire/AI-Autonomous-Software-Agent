@@ -2,9 +2,9 @@ name: AEGIS CI
 
 on:
   push:
-    branches: [ "main", "hardening" ]
+    branches: [ "main", "hardening", "fixes" ]
   pull_request:
-    branches: [ "main", "hardening" ]
+    branches: [ "main", "hardening", "fixes" ]
 
 jobs:
   test:
@@ -31,7 +31,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r examples/requirements.txt
-          pip install pytest httpx bandit
+          pip install -r bench/requirements.txt
+          pip install pytest httpx
 
       - name: Critical Security Gate - Path Traversal Regression Tests
         run: |

@@ -26,35 +26,33 @@ def test_safe_join_valid_paths():
     assert res == os.path.realpath(os.path.join(base, "agent", "main.py"))
 
 
-def test_safe_join_rejects_parent_traversal():
+@pytest.mark.parametrize("payload", [
+    "..",
+    "../",
+    "../../../../etc/passwd",
+    "subdir/../../parent_leak",
+    pytest.param("..\\", marks=pytest.mark.skipif(os.name != "nt", reason="Windows-style path")),
+    pytest.param("..\\..\\..\\windows\\win.ini", marks=pytest.mark.skipif(os.name != "nt", reason="Windows-style path")),
+])
+def test_safe_join_rejects_parent_traversal(payload):
     base = os.path.realpath(root_dir)
-    traversal_payloads = [
-        "..",
-        "../",
-        "..\\",
-        "../../../../etc/passwd",
-        "..\\..\\..\\windows\\win.ini",
-        "subdir/../../parent_leak"
-    ]
-    for payload in traversal_payloads:
-        with pytest.raises(HTTPException) as exc_info:
-            safe_join(base, payload)
-        assert exc_info.value.status_code == 400
-        assert "Invalid path" in exc_info.value.detail
+    with pytest.raises(HTTPException) as exc_info:
+        safe_join(base, payload)
+    assert exc_info.value.status_code == 400
+    assert "Invalid path" in exc_info.value.detail
 
 
-def test_safe_join_rejects_absolute_path_escape():
+@pytest.mark.parametrize("payload", [
+    "/etc/passwd",
+    "/var/log/syslog",
+    pytest.param("C:\\Windows\\System32\\cmd.exe", marks=pytest.mark.skipif(os.name != "nt", reason="Windows-style drive path")),
+    pytest.param("D:\\sensitive_data", marks=pytest.mark.skipif(os.name != "nt", reason="Windows-style drive path")),
+])
+def test_safe_join_rejects_absolute_path_escape(payload):
     base = os.path.realpath(root_dir)
-    escape_payloads = [
-        "/etc/passwd",
-        "/var/log/syslog",
-        "C:\\Windows\\System32\\cmd.exe",
-        "D:\\sensitive_data"
-    ]
-    for payload in escape_payloads:
-        with pytest.raises(HTTPException) as exc_info:
-            safe_join(base, payload)
-        assert exc_info.value.status_code == 400
+    with pytest.raises(HTTPException) as exc_info:
+        safe_join(base, payload)
+    assert exc_info.value.status_code == 400
 
 
 def test_resolve_project_dir_rejects_traversal_and_invalid():
