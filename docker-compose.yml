@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   ollama:
     image: ollama/ollama:latest
@@ -19,6 +17,11 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: aegis-ide
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     ports:
       # Bound strictly to 127.0.0.1 to prevent unauthorized external access
       - "127.0.0.1:8000:8000"
@@ -31,6 +34,8 @@ services:
       - PLAYBOOK=on
     depends_on:
       - ollama
+    volumes:
+      - projects_data:/app/examples
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
     deploy:
@@ -42,3 +47,4 @@ services:
 
 volumes:
   ollama_data:
+  projects_data:

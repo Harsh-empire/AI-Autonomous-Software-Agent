@@ -46,21 +46,25 @@ For each held-out prompt, the harness records:
    ```bash
    ollama pull qwen2.5-coder:7b
    ```
+3. Install benchmark dependencies:
+   ```bash
+   pip install -r bench/requirements.txt
+   ```
 
 ### Execution Command
 Run the runner from the repository root:
 
 ```bash
-# Run all configurations across 3 duel rounds per prompt
-python bench/run_benchmark.py --config A B C D E --rounds 3
+# Run all configurations across 3 runs per prompt
+python bench/run_benchmark.py --config ALL --runs 3
 
-# Or evaluate a specific subset of configurations:
-python bench/run_benchmark.py --config B C --rounds 3
+# Or evaluate a specific configuration:
+python bench/run_benchmark.py --config B --runs 3
 ```
 
 ### Truthful Data Policy
 - The benchmark runner strictly forbids synthetic or mock benchmark values. If Ollama is offline or unreachable on port 11434, the runner will abort with an explicit connection error.
-- All real run metrics will be written to:
+- All real run metrics are written to the `bench/results/` directory:
   - `bench/results/results.csv`
   - `bench/results/summary.md`
   - `bench/results/comparison.png`

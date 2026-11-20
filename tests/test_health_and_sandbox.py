@@ -21,3 +21,17 @@ def test_health_check_endpoint():
     data = response.json()
     assert data["status"] == "ok"
     assert data["service"] == "aegis-web-ide"
+
+
+def test_docker_compose_security_attributes():
+    compose_path = os.path.join(root_dir, "docker-compose.yml")
+    assert os.path.exists(compose_path)
+    with open(compose_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Obsolete version key removed
+    assert not content.strip().startswith("version:")
+    assert "read_only: true" in content
+    assert "cap_drop:" in content and "ALL" in content
+    assert "no-new-privileges:true" in content
+    assert "projects_data:" in content

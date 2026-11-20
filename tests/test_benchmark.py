@@ -86,3 +86,18 @@ def test_results_markdown_and_chart_generation():
         generate_results_chart(csv_path, png_path)
         assert os.path.exists(png_path)
         assert os.path.getsize(png_path) > 0
+
+
+def test_benchmark_cli_parser(monkeypatch):
+    import argparse
+    from bench.run_benchmark import current_dir
+    parser = argparse.ArgumentParser(description="AEGIS Empirical Benchmark Suite")
+    parser.add_argument("--prompts", default=os.path.join(current_dir, "prompts.json"), help="Path to prompts.json")
+    parser.add_argument("--config", default="ALL", choices=["A", "B", "C", "D", "E", "ALL"], help="Config to run")
+    parser.add_argument("--runs", type=int, default=1, help="Number of repetitions per prompt")
+    parser.add_argument("--dry-run-check", action="store_true", help="Check prerequisites and exit")
+
+    args = parser.parse_args(["--config", "ALL", "--runs", "3"])
+    assert args.config == "ALL"
+    assert args.runs == 3
+

@@ -13,7 +13,7 @@ git clone https://github.com/Harsh-empire/AI-Autonomous-Software-Agent.git && cd
 pip install -r requirements.txt
 python ide_server.py
 ```
-*(Or via Docker Sandbox: `docker compose up -d`)*
+*(Or via Docker Compose: `docker compose up -d`)*
 
 ### Expected Output
 ```text
@@ -40,7 +40,7 @@ Navigate to **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in your browser.
 - **An Empirical Hardening Loop:** An automated iterative arena where web applications are probed for common injection, crash, and boundary vulnerabilities, followed by targeted defensive code synthesis.
 - **A Verified Patch Gate:** An architectural gate ensuring code modifications pass abstract syntax tree (`ast.parse`) validation, fail to reproduce the original exploit payload upon re-test, and preserve legitimate route behavior.
 - **A Verified-Only Defense Playbook:** A pattern retrieval cache that stores proven defensive mitigations to inoculate newly generated applications against previously encountered vulnerability classes.
-- **A Sandboxed Local IDE:** A browser-based interface running on `127.0.0.1:8000` with unified diff viewing, automated regression test generation, and SARIF 2.1.0 report export.
+- **A Local Web IDE:** A browser-based interface running on `127.0.0.1:8000` with unified diff viewing, automated regression test generation, and SARIF 2.1.0 report export.
 
 ### What AEGIS Is NOT
 - **NOT an accredited OWASP compliance scanner:** AEGIS evaluates specific heuristic probes; passing all probes does **not** certify an application as OWASP compliant or secure against determined human adversaries.
@@ -125,9 +125,18 @@ Only patches satisfying all three criteria increment `verified_fixes` and are in
 
 ## Quickstart
 
-### Option 1: Docker Compose (Recommended Sandbox Setup)
+### Option 1: Docker Compose
 
-The container runs with non-root privileges (`aegis`), read-only filesystem root, CPU and memory limits, and a 512 MB tmpfs:
+Docker Compose runs the `ide` service with:
+- Non-root user (`aegis`)
+- Read-only root filesystem (`read_only: true`)
+- All Linux capabilities dropped (`cap_drop: [ALL]`)
+- Privilege escalation disabled (`security_opt: ["no-new-privileges:true"]`)
+- Resource limits (4 CPUs, 4 GB RAM)
+- Writable tmpfs for temporary data (`/tmp:rw,noexec,nosuid,size=512m`)
+- Named volume for project persistence (`projects_data:/app/examples`)
+
+> **Network Isolation Warning:** Generated target applications run directly as child subprocesses inside the `ide` container alongside the IDE server and are **not** network-isolated. They share the container's network stack and can communicate with services reachable by the container. Never deploy or expose the IDE on public networks (`0.0.0.0`).
 
 ```bash
 # Clone the repository
@@ -207,12 +216,14 @@ AEGIS includes a standardized benchmarking harness (`bench/run_benchmark.py`) wi
 
 ### Strict Real-Run Policy
 The benchmark runner strictly adheres to empirical verification:
+- Benchmark dependencies: Install `pip install -r bench/requirements.txt`.
+- Output artifacts: Real measured metrics and plots are written to the `bench/results/` directory (`results.csv`, `summary.md`, `comparison.png`).
 - If Ollama is unreachable at `http://127.0.0.1:11434`, the runner **fails loudly** with an explicit error and exit code `1`. It never generates synthetic or placeholder benchmark metrics.
-- Output artifacts are saved to `bench/results/results.csv`, `bench/results/summary.md`, and `bench/results/comparison.png`.
 
 To run the benchmark suite on a machine with live Ollama:
 ```bash
-python bench/run_benchmark.py --config A B C D E --rounds 3
+pip install -r bench/requirements.txt
+python bench/run_benchmark.py --config ALL --runs 3
 ```
 
 *(Note: If Ollama is offline or the model is not loaded, the script will output a connection error instructing the user to start `ollama serve` and pull `qwen2.5-coder:7b`.)*
@@ -243,7 +254,7 @@ AEGIS builds upon and compares against recent literature in autonomous agent sec
 1. **Rule-Based Fuzzing Engine:** The Hacker agent executes predefined heuristic payloads across 9 tiers (boundary tests, SQLi strings, XSS script tags, SSTI expressions, traversal sequences). It does not conduct deep symbolic execution, dynamic taint analysis, or multi-step session hijacking.
 2. **Crash-Centric Detection:** Breaches are primarily detected when an endpoint returns HTTP 500 or an unhandled exception. Silent logic errors (e.g. improper access control returning 200 with unauthorized data) may not be detected unless explicit assertion probes are configured.
 3. **No Proof of Complete Security:** A measured shield score of 100% signifies that 100% of *detected breaches* in that specific run were verified as patched against the *tested probe suite*. It does not prove the absence of undiscovered vulnerabilities.
-4. **Sandboxing is Mandatory:** Because the Builder AI generates executable Python code, production or multi-tenant deployments must enforce strict micro-VM or container isolation. Never expose the web IDE or preview ports publicly without network isolation.
+4. **No Network Isolation for Generated Apps:** Generated applications run directly inside the `ide` container (or local host process) and are not network-isolated. Because the Builder AI generates executable Python code, untrusted prompt execution requires external network isolation (e.g. firewalled network namespaces or microVMs). Never expose the web IDE or preview ports (`:8000`, `:5000`) publicly.
 
 ---
 
@@ -260,4 +271,4 @@ CI runs automatically via GitHub Actions (`.github/workflows/ci.yml`) across **U
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
