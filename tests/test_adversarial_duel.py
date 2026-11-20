@@ -13,7 +13,7 @@ root_dir = os.path.abspath(os.path.join(current_dir, ".."))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-from agent.adversarial_duel import AdversarialArena, BuilderAgent
+from agent.adversarial_duel import AdversarialArena, BuilderAgent, HackerAgent
 
 
 class MockMessage:
@@ -158,3 +158,55 @@ def test_verification_artifacts_saved(monkeypatch):
             code = f.read()
         assert "def test_regression():" in code
         assert "/probe_endpoint" in code
+
+
+def test_patch_that_deletes_route_is_unresolved(monkeypatch):
+    hacker = HackerAgent(client=MockLLMClient(""), model="mock-model")
+
+    baseline = {
+        "home": {"status_code": 200, "status_class": 2, "content_len": 100, "content_snippet": "Home"},
+        "route": {"status_code": 200, "status_class": 2, "content_len": 50, "content_snippet": "Dashboard"}
+    }
+
+    class MockResp:
+        def __init__(self, status_code, text=""):
+            self.status_code = status_code
+            self.text = text
+
+    def mock_get(url, **kwargs):
+        if url.endswith("/"):
+            return MockResp(200, "Home")
+        return MockResp(404, "Not Found")
+
+    monkeypatch.setattr("requests.Session.get", lambda self, url, **kwargs: mock_get(url, **kwargs))
+
+    # 1. test_legitimate_behavior must return False because route was deleted (404)
+    result = hacker.test_legitimate_behavior("dummy_dir", "/dashboard", baseline=baseline)
+    assert result is False
+
+    # 2. In arena conduct_duel flow, breach must remain UNRESOLVED
+    arena = AdversarialArena(client=MockLLMClient(""), model="mock-model", max_rounds=1)
+    breach = {
+        "type": "SQL Injection",
+        "route": "/dashboard",
+        "method": "GET",
+        "payload": "' OR 1=1 --",
+        "status_code": 500,
+        "details": "Crash on input"
+    }
+
+    monkeypatch.setattr(arena.builder, "generate_targeted_defense", lambda proj, b: True)
+    monkeypatch.setattr(arena.hacker, "replay_breach", lambda b: False)
+    monkeypatch.setattr(arena.hacker, "record_baseline_behavior", lambda r: baseline)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        with open(os.path.join(tmp_dir, "app.py"), "w") as f:
+            f.write("# dummy")
+        monkeypatch.setattr(arena.hacker, "run_attack_round", lambda *args, **kwargs: [dict(breach)])
+
+        success = arena.conduct_duel(tmp_dir, restart_server_callback=lambda: None)
+        assert success is False
+        assert arena.verified_fixes == 0
+        assert arena.unresolved == 1
+        assert arena.duel_logs[0]["breaches"][0]["status"] == "UNRESOLVED"
+

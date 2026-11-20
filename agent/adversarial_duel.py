@@ -445,19 +445,68 @@ class HackerAgent:
         except Exception:
             return True
 
-    def test_legitimate_behavior(self, project_dir: str, route: str) -> bool:
+    def record_baseline_behavior(self, route: str) -> Dict[str, Any]:
+        """
+        Records the baseline HTTP response status class and content for '/' and the target route
+        before a defensive patch is applied.
+        """
+        session = requests.Session()
+        baseline = {"home": None, "route": None}
+        try:
+            r_home = session.get(f"{self.base_url}/", timeout=3)
+            baseline["home"] = {
+                "status_code": r_home.status_code,
+                "status_class": r_home.status_code // 100,
+                "content_len": len(r_home.text),
+                "content_snippet": r_home.text[:200]
+            }
+        except Exception:
+            baseline["home"] = None
+
+        try:
+            target_url = f"{self.base_url}{route if route.startswith('/') else '/' + route}"
+            r_route = session.get(target_url, timeout=3)
+            baseline["route"] = {
+                "status_code": r_route.status_code,
+                "status_class": r_route.status_code // 100,
+                "content_len": len(r_route.text),
+                "content_snippet": r_route.text[:200]
+            }
+        except Exception:
+            baseline["route"] = None
+
+        return baseline
+
+    def test_legitimate_behavior(self, project_dir: str, route: str, baseline: Optional[Dict[str, Any]] = None) -> bool:
         """
         Verifies that legitimate functionality on the route and base URL still works.
+        Requires the same status class as baseline (e.g. a 200 route must still be 200/3xx,
+        never 404/405/5xx) and fails the patch if the route was removed or returns an error.
         """
         session = requests.Session()
         try:
+            # 1. Test home route "/"
             r_home = session.get(f"{self.base_url}/", timeout=3)
-            if r_home.status_code >= 500:
+            if r_home.status_code in (404, 405) or r_home.status_code >= 500:
                 return False
+            if baseline and baseline.get("home"):
+                b_home = baseline["home"]
+                if b_home.get("status_class") in (2, 3) and (r_home.status_code // 100) not in (2, 3):
+                    return False
+
+            # 2. Test target route
             target_url = f"{self.base_url}{route if route.startswith('/') else '/' + route}"
             r_route = session.get(target_url, timeout=3)
-            if r_route.status_code >= 500:
+            # If route was deleted (404), method not allowed (405), or crashed (500+) -> fail
+            if r_route.status_code in (404, 405) or r_route.status_code >= 500:
                 return False
+            if baseline and baseline.get("route"):
+                b_route = baseline["route"]
+                # Require same status class (e.g. 200 must remain 2xx/3xx, never 404/405/5xx)
+                if b_route.get("status_class") in (2, 3) and (r_route.status_code // 100) not in (2, 3):
+                    return False
+                if b_route.get("content_len", 0) > 0 and len(r_route.text.strip()) == 0:
+                    return False
             return True
         except Exception:
             return False
@@ -738,6 +787,9 @@ if __name__ == "__main__":
                 retort = self.builder.counter_argument(b)
                 log_builder(f"\"{retort}\"")
 
+                # Record baseline legitimate behavior before applying patch
+                baseline = self.hacker.record_baseline_behavior(b.get("route", "/"))
+
                 # Builder attempts defensive repair
                 repaired = self.builder.generate_targeted_defense(project_dir, b)
                 if repaired:
@@ -748,7 +800,7 @@ if __name__ == "__main__":
                     # Hacker immediately re-probes the vector
                     log_hacker("Re-testing breached vector to verify if your fix holds...")
                     is_still_breached = self.hacker.replay_breach(b)
-                    is_legitimate_ok = self.hacker.test_legitimate_behavior(project_dir, b.get("route", "/"))
+                    is_legitimate_ok = self.hacker.test_legitimate_behavior(project_dir, b.get("route", "/"), baseline=baseline)
                     
                     if (not is_still_breached) and is_legitimate_ok:
                         self.verified_fixes += 1
