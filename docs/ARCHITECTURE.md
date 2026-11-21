@@ -71,8 +71,11 @@ Unlike standard generative code-repair agents that assume an LLM's patch is corr
 
 ### Gate 3: Legitimate Behavior & Regression Check (`test_legitimate_behavior`)
 - A common flaw in automated repair is "patching" a vulnerability by commenting out the route or returning an unconditional error response.
-- Gate 3 performs automated regression checks on legitimate routes (e.g., standard `GET /` and valid requests).
-- If legitimate functionality was broken, the patch fails verification and remains **UNRESOLVED**.
+- Before the patch is applied, `capture_baseline` records the HTTP status of legitimate requests (`GET /` and the breached route).
+- After the patch, `legit_status_ok` requires: no 5xx, a page that returned 2xx/3xx must not become 4xx/5xx, and an existing route must not become 404. Removing the route therefore fails the gate.
+- The same shared function (`verify_patch`) is used by the CLI arena, the web IDE duel and the chaos console.
+- A patch that fails the gate is marked **UNRESOLVED** and **rolled back** (`rollback_last_patch`), so only verified patches remain in the code.
+- Limitation: only HTTP status classes are compared, not page content.
 
 ### Measured Outcome Accounting
 - `verified_fixes` increments **only** if Gates 1, 2, and 3 pass.
@@ -84,8 +87,8 @@ Unlike standard generative code-repair agents that assume an LLM's patch is corr
 ## 4. How the Defense Playbook Works
 
 When a patch passes all three gates:
-1. `poc.json` is generated with `{vuln_type, route, method, payload, status_code, timestamp, verified: True}`.
-2. `regression_test.py` is written to the project folder for continuous testing.
+1. Evidence for every verified fix is kept in `verification/poc_NN.json` and `verification/regression_test_NN.py` (`poc.json` and `regression_test.py` always hold the latest fix). A PoC contains `{vuln_type, route, method, payload, status_code, baseline_status, timestamp, verified: True}`.
+2. The generated regression test replays the probe and checks the pre-patch baseline.
 3. The mitigation is ingested into `PlaybookManager` in `playbook/`.
 4. On future application generations, `get_relevant_entries(prompt)` retrieves matching verified snippets to inoculate the Builder's system prompt prior to code generation.
 

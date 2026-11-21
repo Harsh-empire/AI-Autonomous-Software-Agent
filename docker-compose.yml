@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   ollama:
     image: ollama/ollama:latest
@@ -33,6 +31,13 @@ services:
       - ollama
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
+    # Container hardening. This is a container boundary, NOT a full sandbox: the generated
+    # apps run inside this same container (see README, "Security model").
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
     deploy:
       resources:
         limits:

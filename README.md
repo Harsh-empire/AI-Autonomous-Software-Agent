@@ -2,7 +2,7 @@
 
 AEGIS is an experimental local development environment that couples a generative developer (**Builder AI**) with an automated red-team fuzzer (**Hacker AI**) to synthesize, test, and harden web applications through empirical probe-and-patch cycles.
 
-To my knowledge, AEGIS is among the first open-source developer environments to enforce a **Verified Patch Gate**—guaranteeing that defensive patches are counted as fixed only after automated syntax parsing, exact payload replay verification, and regression testing against legitimate application functionality.
+AEGIS applies a **Verified Patch Gate**: a defensive patch is counted as fixed only if it parses, the exact breach request no longer reproduces, and legitimate requests still behave as they did before the patch. The idea of red-team/blue-team hardening with LLM agents already exists in research and other tools (for example the RvB red-blue hardening framework, arXiv 2601.19726); this project is a small, local-first implementation focused on generated Flask apps, with measured results (see Benchmarking).
 
 ---
 
@@ -13,7 +13,7 @@ git clone https://github.com/Harsh-empire/AI-Autonomous-Software-Agent.git && cd
 pip install -r requirements.txt
 python ide_server.py
 ```
-*(Or via Docker Sandbox: `docker compose up -d`)*
+*(Or with Docker: `docker compose up -d`; see the security model below)*
 
 ### Expected Output
 ```text
@@ -40,7 +40,7 @@ Navigate to **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in your browser.
 - **An Empirical Hardening Loop:** An automated iterative arena where web applications are probed for common injection, crash, and boundary vulnerabilities, followed by targeted defensive code synthesis.
 - **A Verified Patch Gate:** An architectural gate ensuring code modifications pass abstract syntax tree (`ast.parse`) validation, fail to reproduce the original exploit payload upon re-test, and preserve legitimate route behavior.
 - **A Verified-Only Defense Playbook:** A pattern retrieval cache that stores proven defensive mitigations to inoculate newly generated applications against previously encountered vulnerability classes.
-- **A Sandboxed Local IDE:** A browser-based interface running on `127.0.0.1:8000` with unified diff viewing, automated regression test generation, and SARIF 2.1.0 report export.
+- **A Local Web IDE:** A browser-based interface running on `127.0.0.1:8000` with unified diff viewing, automated regression test generation, and SARIF 2.1.0 report export.
 
 ### What AEGIS Is NOT
 - **NOT an accredited OWASP compliance scanner:** AEGIS evaluates specific heuristic probes; passing all probes does **not** certify an application as OWASP compliant or secure against determined human adversaries.
@@ -69,7 +69,7 @@ Navigate to **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in your browser.
        |                                                             |
        |  +--------------------+             +--------------------+  |
        |  |     HACKER AI      | HTTP Probes |   TARGET APP       |  |
-       |  | (Rule-Based Fuzzer)| ----------> | (Port 5000/Sandbx) |  |
+       |  | (Rule-Based Fuzzer)| ----------> | (Port 5000)        |  |
        |  +--------------------+             +--------------------+  |
        |           |                                    ^            |
        |           | Breach Payload                     |            |
@@ -107,7 +107,7 @@ Navigate to **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in your browser.
 ### The Three Invariants of the Verified Patch Gate
 1. **Syntactic Integrity:** The generated patch must parse cleanly under Python's `ast.parse`. If syntax is invalid, the patch is discarded and the original source is preserved.
 2. **Exploit Negation:** The exact HTTP request (route, method, payload) that triggered the breach is replayed against the restarted server. It must no longer trigger an HTTP 500 crash or vulnerability signature.
-3. **Functional Non-Regression:** The fuzzer checks standard application baseline routes (e.g. `GET /`). If the patch disabled or broke legitimate functionality, the fix is marked **UNRESOLVED**.
+3. **Functional Non-Regression:** Before patching, the status of legitimate requests (`GET /` and the breached route) is recorded as a baseline. After patching, a working page must not turn into an error, the server must not crash, and an existing route must not disappear (404). A patch that fails this check is marked **UNRESOLVED** and **rolled back**, so only verified patches stay in the code. The check compares HTTP status classes, not page content.
 
 Only patches satisfying all three criteria increment `verified_fixes` and are ingested into the Defense Playbook.
 
@@ -123,18 +123,29 @@ Only patches satisfying all three criteria increment `verified_fixes` and are in
 
 ---
 
+## Demo
+
+_Demo video and screenshots: to be added._
+
+<!-- Add your demo video and screenshots to docs/images/, then replace the line above with:
+[![Demo video](docs/images/screenshot-arena.png)](YOUR_VIDEO_LINK)
+
+![Duel arena](docs/images/screenshot-arena.png)
+![Diff viewer](docs/images/screenshot-diff.png)
+-->
+
 ## Quickstart
 
-### Option 1: Docker Compose (Recommended Sandbox Setup)
+### Option 1: Docker Compose
 
-The container runs with non-root privileges (`aegis`), read-only filesystem root, CPU and memory limits, and a 512 MB tmpfs:
+The `ide` container runs as a non-root user (`aegis`) with all Linux capabilities dropped, `no-new-privileges`, a process limit, CPU and memory limits and a 512 MB `noexec` tmpfs for `/tmp`. Ports are published on `127.0.0.1` only. See **Security model** below for what this does and does not protect against.
 
 ```bash
 # Clone the repository
 git clone https://github.com/Harsh-empire/AI-Autonomous-Software-Agent.git
 cd AI-Autonomous-Software-Agent
 
-# Launch IDE and local Ollama service in isolated containers
+# Launch the IDE and a local Ollama service in containers
 docker compose up -d
 
 # Pull the default coding model inside the ollama container
@@ -194,28 +205,46 @@ The Defense Playbook (`agent/playbook.py`) retains verified mitigations to preve
 
 ## Benchmarking & Empirical Baselines
 
-AEGIS includes a standardized benchmarking harness (`bench/run_benchmark.py`) with 20 application-generation prompts:
-- **10 Training Prompts:** Used to seed and evaluate initial playbook entries.
-- **10 Held-out Test Prompts:** Never used during playbook construction to test generalization.
+`bench/run_benchmark.py` runs a real, end-to-end experiment with your local model. It uses 20 application prompts in `bench/prompts.json`:
+- **10 train prompts:** used only to build the verified playbook (duels on these apps; only verified fixes are stored).
+- **10 held-out test prompts:** never used to build the playbook. Each config-C run works on a throw-away copy of the trained playbook, so test apps cannot leak into it.
 
-### Evaluated Configurations
-- **Config A:** Generative baseline (No adversarial duel).
-- **Config B:** Adversarial duel without playbook.
-- **Config C:** Adversarial duel + Verified Defense Playbook.
-- **Config D:** Static analysis baseline (Bandit scan on baseline generation).
-- **Config E:** Single-shot LLM prompt ("make this code secure" without duel).
+### Configurations
+- **A:** no duel (raw generated app, measured only).
+- **B:** Builder/Hacker duel, `PLAYBOOK=off`.
+- **C:** duel with the verified playbook (the app is also generated with playbook rules in the prompt).
+- **D:** Bandit-only static scan of the raw app (no fixing).
+- **E:** single-shot LLM "make this code secure" (no duel), then judged by the same Verified Patch Gate.
+
+### Metrics (one row per prompt, run and config in `results.csv`)
+`initial_breaches` (Hacker fuzzer on the first generated version), `verified_fixes`, `unresolved`, `fix_rate`, `residual_breaches` (fuzzer re-run on the final app), `bandit_initial` / `bandit_findings` (independent static metric on the app code only), `duration_sec`, and a `status` column. Runs that fail (for example an app that does not start) are recorded with an error status and excluded from the averages, never hidden.
 
 ### Strict Real-Run Policy
-The benchmark runner strictly adheres to empirical verification:
-- If Ollama is unreachable at `http://127.0.0.1:11434`, the runner **fails loudly** with an explicit error and exit code `1`. It never generates synthetic or placeholder benchmark metrics.
-- Output artifacts are saved to `bench/results/results.csv`, `bench/results/summary.md`, and `bench/results/comparison.png`.
+- If the LLM server is unreachable the runner **fails loudly** (exit code `1`). It never produces synthetic or placeholder numbers.
+- It also refuses to run if Bandit is missing or port `5000` (used to start each generated app) is already in use.
+- Every run writes `results.csv`, `results.md` (summary, paired playbook comparison, failures, limitations), `comparison.png`, `run_metadata.json` and per-run logs to `bench/results/`.
 
-To run the benchmark suite on a machine with live Ollama:
+### Run it
 ```bash
-python bench/run_benchmark.py --config A B C D E --rounds 3
+pip install -r bench/requirements.txt
+python bench/run_benchmark.py --dry-run-check          # prerequisites only
+python bench/run_benchmark.py --config ALL --runs 1 --limit 2 --train-limit 2   # quick smoke run
+python bench/run_benchmark.py --config ALL --runs 3    # full run (expect many hours with a 7B model)
 ```
 
-*(Note: If Ollama is offline or the model is not loaded, the script will output a connection error instructing the user to start `ollama serve` and pull `qwen2.5-coder:7b`.)*
+### Results
+_Not run in this repository yet. After you run it, commit `bench/results/results.md` and paste the summary table here. Report whatever the numbers show, including no improvement._
+
+The benchmark machinery itself is covered by an end-to-end test that uses a stubbed LLM (`tests/test_benchmark_pipeline.py`); numbers from that stub are test fixtures, not results.
+
+## Security model
+
+- **Generated code is executed on your machine.** The Builder writes Python, the preview starts it, and the Hacker sends hostile requests to it. Treat every generated app as untrusted.
+- **Docker is a container boundary, not a full sandbox.** The compose file drops all capabilities, sets `no-new-privileges`, limits processes, CPU and memory, and publishes ports on `127.0.0.1` only. It does **not** use a read-only root filesystem, and generated apps run inside the same container as the IDE with network access to the Ollama service. For untrusted use, run it in a VM or a micro-VM.
+- **Generated Flask apps use `debug=True`.** The Werkzeug debugger allows code execution. Never expose port `5000` beyond localhost.
+- **Docker preview limitation:** generated apps usually bind to `127.0.0.1` inside the container, so the live preview on port `5000` may not open from your host when using Docker. The duel talks to the app from inside the container. Running locally (Option 2) does not have this limitation.
+- **File access:** all project and file paths are validated with `safe_join` (path traversal is blocked and covered by tests).
+- **Patches are verified or rolled back.** A patch is kept only if the exact breach no longer reproduces and legitimate requests still behave as before (a patch that removes a route or breaks a page is rejected and rolled back). The check is shallow: it compares HTTP status classes, not page content.
 
 ---
 

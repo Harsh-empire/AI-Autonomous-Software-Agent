@@ -25,5 +25,5 @@ If you believe you have found a security vulnerability (such as a path traversal
 
 ## Security Practices for Users
 
-- **Local Execution:** Always run the AEGIS web IDE bound to `127.0.0.1` (the default) or inside the provided Docker Compose sandbox.
+- **Local Execution:** Always run the AEGIS web IDE bound to `127.0.0.1` (the default) or inside the provided Docker Compose container (a hardened container boundary, not a full sandbox).
 - **Untrusted Prompts:** Never expose the web IDE to public untrusted networks, as it generates and runs Python applications.
