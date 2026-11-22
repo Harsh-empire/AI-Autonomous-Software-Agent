@@ -67,7 +67,11 @@ def live_app():
 
     @app.route("/")
     def home():
-        return ("home broken", 500) if state["mode"] == "broke_home" else "home ok"
+        if state["mode"] == "broke_home":
+            return ("home broken", 500)
+        if state["mode"] == "blank_home":
+            return ""  # still 200, but the page content is gone
+        return "home ok"
 
     @app.route("/search")
     def search():
@@ -137,6 +141,13 @@ def test_patch_that_breaks_homepage_is_rejected(live_app):
     verified, reason = _gate(url, state, "broke_home")
     assert verified is False
     assert reason == "regression"
+
+
+def test_patch_that_blanks_a_page_is_rejected(live_app):
+    """Status stays 200 but the page content disappears: must be rejected as a regression."""
+    state, url = live_app
+    verified, reason = _gate(url, state, "blank_home")
+    assert (verified, reason) == (False, "regression")
 
 
 # ----------------------------------------------------------------------------

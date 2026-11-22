@@ -59,3 +59,7 @@ graph TD
 ## Technical Security Notes
 - The fuzzer relies on heuristic pattern matching and crash detection. It does not replace an accredited manual security audit or comprehensive static/dynamic analysis tools.
 - Generated code runs directly on the local machine during previews. Always execute untrusted prompts inside an isolated container or virtual machine.
+
+## Container hardening (planned)
+- Run the IDE container with a **read-only root filesystem**. This needs a dedicated, mounted workspace directory for generated projects (currently they are created under `/app`) and a volume for the playbook; without it Build and the playbook cannot write. Not implemented yet.
+- Run generated apps and the Hacker probes in a **separate container without network access** instead of inside the IDE container.

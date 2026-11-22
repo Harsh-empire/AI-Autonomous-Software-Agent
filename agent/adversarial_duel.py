@@ -457,6 +457,8 @@ class HackerAgent:
             try:
                 r = requests.get(f"{self.base_url}{path}", timeout=3, allow_redirects=False)
                 baseline[path] = r.status_code
+                # Body length (key "len:<path>") lets the gate reject a patch that blanks a page.
+                baseline[f"len:{path}"] = len(r.text.strip())
             except Exception:
                 baseline[path] = None
         return baseline
@@ -494,6 +496,10 @@ class HackerAgent:
                 return False
             before = (baseline or {}).get(path)
             if not self.legit_status_ok(before, r.status_code):
+                return False
+            # A page that had content before the patch must not come back empty.
+            before_len = (baseline or {}).get(f"len:{path}")
+            if before_len and before_len > 0 and len(r.text.strip()) == 0:
                 return False
         return True
 
@@ -562,11 +568,17 @@ def test_regression():
 
     # 2. Legitimate requests must behave as they did before the patch.
     for path, before in BASELINE.items():
-        after = requests.get(BASE_URL + path, timeout=3, allow_redirects=False).status_code
+        if not path.startswith("/"):
+            continue  # "len:<path>" entries hold the body length, not a status
+        resp = requests.get(BASE_URL + path, timeout=3, allow_redirects=False)
+        after = resp.status_code
         assert after < 500, f"{{path}} now returns {{after}}"
         if before is not None:
             assert not (before < 400 and after >= 400), f"{{path}} was {{before}}, now {{after}}"
             assert not (before != 404 and after == 404), f"{{path}} disappeared (404)"
+        before_len = BASELINE.get("len:" + path)
+        if before_len:
+            assert resp.text.strip(), f"{{path}} used to have content but is now empty"
 
 
 if __name__ == "__main__":

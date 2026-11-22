@@ -65,6 +65,9 @@ python bench/run_benchmark.py --config B --runs 3
 python bench/run_benchmark.py --config C --runs 3 --skip-train   # reuse an existing trained playbook
 ```
 
+### Using a cloud LLM
+`--model gemini-2.5-flash` (needs `GEMINI_API_KEY`) or `--model "openrouter:<vendor/model>:free"` (needs `OPENROUTER_API_KEY`) replace the local model. Use `--min-interval SECONDS` to pace requests and `--resume` to continue after the quota resets (the runner exits with code `3` when the quota is exhausted and saves partial results). Free tiers have per-minute/per-day limits, may use your prompts to improve the provider's products, and a different model gives numbers that are not comparable with a local run. The model and provider are written to `results.md` and `run_metadata.json`. See the main README for details.
+
 ### Truthful Data Policy
 - The runner refuses to run (exit code `1`) if the LLM server is unreachable. It never writes synthetic numbers.
 - Results are written to `bench/results/`: `results.csv`, `results.md`, `comparison.png`, `run_metadata.json`, `train_runs.csv`, and per-run logs.

@@ -232,6 +232,27 @@ python bench/run_benchmark.py --config ALL --runs 1 --limit 2 --train-limit 2   
 python bench/run_benchmark.py --config ALL --runs 3    # full run (expect many hours with a 7B model)
 ```
 
+### Using a free cloud API instead of local Ollama (Gemini / OpenRouter)
+
+Local Ollama is the default and keeps everything on your machine. For the benchmark you can instead use a cloud model:
+
+```bash
+# Google Gemini (exact model id from Google AI Studio; check which models your free tier allows)
+export GEMINI_API_KEY=...            # never commit it
+python bench/run_benchmark.py --model gemini-2.5-flash --min-interval 6 --config ALL --runs 1 --limit 2 --train-limit 2
+
+# OpenRouter (exact model id from openrouter.ai/models; ":free" variants have no per-token cost)
+export OPENROUTER_API_KEY=...
+python bench/run_benchmark.py --model "openrouter:<vendor/model>:free" --min-interval 6 --config ALL --runs 1 --limit 2 --train-limit 2
+```
+
+What to know before you do:
+- **Limits.** Free tiers limit requests per minute and per day (Gemini: per project and per model, shown in Google AI Studio; OpenRouter `:free` models: one account-wide daily cap that depends on the credits you have purchased, and free capacity can change or disappear). A full run needs many hundreds of LLM calls. Use `--min-interval` (seconds between calls) to stay under the per-minute limit. On HTTP 429 the client retries with exponential backoff and honours `Retry-After`; if the quota is really exhausted the run stops, saves what it has and exits with code `3`. Continue later with the same command plus `--resume`.
+- **Privacy.** Prompts and generated code are sent to the provider. Free tiers may allow the provider to use them to improve its products (Gemini's free tier does). Do not use private code.
+- **Comparability.** A stronger cloud model usually writes less vulnerable code than a small local one. Results are only comparable between runs with the same model; `results.md` and `run_metadata.json` record the model and provider, and you must report it next to the numbers. OpenRouter's rotating `:free` models make runs hard to reproduce.
+- **Billing.** Do not enable billing on the project if you want a hard free limit.
+- `--dry-run-check` sends one tiny test request to a cloud provider (it counts against your quota).
+
 ### Results
 _Not run in this repository yet. After you run it, commit `bench/results/results.md` and paste the summary table here. Report whatever the numbers show, including no improvement._
 

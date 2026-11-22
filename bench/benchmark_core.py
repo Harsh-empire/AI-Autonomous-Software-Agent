@@ -42,6 +42,8 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import requests
 
+from agent.llm_client import LLMQuotaError, provider_for
+
 TARGET_HOST = "127.0.0.1"
 TARGET_PORT = 5000
 MAX_TIER = 5  # the Hacker has tiers 1..5; the duel is run for the same number of rounds
@@ -319,7 +321,7 @@ def single_shot_secure(client: Any, model: str, project_dir: str) -> bool:
 class BenchmarkRunner:
     def __init__(self, out_dir: str, prompts: Dict[str, List[Dict[str, str]]], configs: List[str],
                  runs: int = 1, rounds: int = MAX_TIER, limit: int = 0, train_limit: int = 0,
-                 skip_train: bool = False, log: Callable[[str], None] = print):
+                 skip_train: bool = False, resume: bool = False, log: Callable[[str], None] = print):
         self.out_dir = os.path.abspath(out_dir)
         self.prompts = prompts
         self.configs = configs
@@ -328,6 +330,7 @@ class BenchmarkRunner:
         self.limit = limit
         self.train_limit = train_limit
         self.skip_train = skip_train
+        self.resume = resume
         self.log = log
 
         self.work_dir = os.path.join(self.out_dir, "work")
@@ -464,7 +467,7 @@ class BenchmarkRunner:
         train = self.prompts.get("train", [])
         if self.train_limit:
             train = train[: self.train_limit]
-        if self.skip_train and os.path.isdir(self.playbook_dir) and os.listdir(self.playbook_dir):
+        if (self.skip_train or self.resume) and os.path.isdir(self.playbook_dir) and os.listdir(self.playbook_dir):
             self.log(f"Reusing existing trained playbook: {self.playbook_dir}")
             return
         if os.path.isdir(self.playbook_dir):
@@ -481,6 +484,8 @@ class BenchmarkRunner:
                 base = self._generate(p["prompt"], f"{pid}_plain", use_playbook=False, playbook_dir=None)
                 res = self._cfg_duel(base, f"{pid}_train", playbook_on=True, playbook_dir=self.playbook_dir)
                 status = res.get("status", "ok")
+            except LLMQuotaError:
+                raise  # stop the whole run instead of recording a wall of identical failures
             except Exception as exc:  # recorded, never hidden
                 status = f"error: {type(exc).__name__}: {exc}"[:200]
                 self.log(f"   ! {status}")
@@ -492,16 +497,33 @@ class BenchmarkRunner:
         entries = len(PlaybookManager(self.playbook_dir).list_entries())
         self.log(f"Playbook entries after training: {entries} (verified fixes only)")
 
+    def _load_existing(self) -> None:
+        """--resume: keep the successful rows of an earlier (interrupted or quota-limited) run."""
+        if not os.path.exists(self.csv_path):
+            return
+        with open(self.csv_path, newline="", encoding="utf-8") as fh:
+            kept = [r for r in csv.DictReader(fh) if _is_ok(r)]
+        self.records = kept
+        self.log(f"Resuming: kept {len(kept)} successful row(s) from {self.csv_path}")
+
     def _evaluate(self) -> None:
         test = self.prompts.get("held_out_test", [])
         if self.limit:
             test = test[: self.limit]
-        want_plain = any(c in self.configs for c in "ABDE")
-        want_pb = "C" in self.configs
+        if self.resume:
+            self._load_existing()
+        done = {(str(r["prompt_id"]), str(r["run"]), str(r["config"]))
+                for r in self.records if _is_ok(r)}
         for run in range(1, self.runs + 1):
             for idx, p in enumerate(test, 1):
                 pid = p["id"]
                 tag = f"{pid}_r{run}"
+                todo = [c for c in self.configs if (pid, str(run), c) not in done]
+                if not todo:
+                    self.log(f"[test run {run}/{self.runs}, prompt {idx}/{len(test)}] {pid}: already done (resume)")
+                    continue
+                want_plain = any(c in todo for c in "ABDE")
+                want_pb = "C" in todo
                 self.log(f"[test run {run}/{self.runs}, prompt {idx}/{len(test)}] {pid}: {p['name']}")
 
                 plain: Optional[str] = None
@@ -509,6 +531,8 @@ class BenchmarkRunner:
                 if want_plain:
                     try:
                         plain = self._generate(p["prompt"], f"{tag}_plain", False, None)
+                    except LLMQuotaError:
+                        raise
                     except Exception as exc:
                         plain_err = f"error: generation failed: {type(exc).__name__}: {exc}"[:200]
 
@@ -524,10 +548,12 @@ class BenchmarkRunner:
                         os.makedirs(pb_copy)
                     try:
                         pb = self._generate(p["prompt"], f"{tag}_pb", True, pb_copy)
+                    except LLMQuotaError:
+                        raise
                     except Exception as exc:
                         pb_err = f"error: generation failed: {type(exc).__name__}: {exc}"[:200]
 
-                for cfg in self.configs:
+                for cfg in todo:
                     base, err = (pb, pb_err) if cfg == "C" else (plain, plain_err)
                     name = f"{tag}_{cfg}"
                     if base is None:
@@ -549,9 +575,13 @@ class BenchmarkRunner:
                             row = self._row(pid, "held_out_test", run, cfg, **res)
                         except AppStartError:
                             row = self._row(pid, "held_out_test", run, cfg, status="app_failed_to_start")
+                        except LLMQuotaError:
+                            raise
                         except Exception as exc:
                             row = self._row(pid, "held_out_test", run, cfg,
                                             status=f"error: {type(exc).__name__}: {exc}"[:200])
+                    self.records = [r for r in self.records
+                                    if (str(r["prompt_id"]), str(r["run"]), str(r["config"])) != (pid, str(run), cfg)]
                     self.records.append(row)
                     self._save()
                     self.log(f"   {cfg}: {row['status']}  initial={row['initial_breaches']} "
@@ -580,6 +610,8 @@ class BenchmarkRunner:
             "started_utc": started.isoformat(timespec="seconds"),
             "finished_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "model": self._model,
+            "provider": provider_for(os.environ.get("AEGIS_MODEL", "qwen2.5-coder:7b")),
+            "resumed": self.resume,
             "configs": self.configs,
             "runs": self.runs,
             "duel_rounds": self.rounds,
@@ -671,6 +703,10 @@ def write_markdown(records: List[Dict[str, Any]], md_path: str) -> None:
     failed = [r for r in records if not _is_ok(r)]
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("# AEGIS Benchmark Results: Empirical Evaluation\n\n")
+        models = sorted({str(r.get("model")) for r in records if r.get("model")})
+        if models:
+            f.write(f"Model(s) used: {', '.join(models)}. Results are only comparable between runs that "
+                    "used the same model and provider.\n\n")
         f.write(f"Rows: {len(records)} total, {len(records) - len(failed)} successful, "
                 f"{len(failed)} failed (failed rows are excluded from the averages below).\n\n")
         f.write("**Configurations Evaluated**:\n")

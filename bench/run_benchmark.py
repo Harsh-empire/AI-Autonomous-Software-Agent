@@ -25,7 +25,7 @@ import time
 import argparse
 import subprocess
 import requests
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.abspath(os.path.join(current_dir, ".."))
@@ -49,6 +49,31 @@ def check_ollama_reachable(base_url: str = OLLAMA_BASE_URL) -> bool:
             return r2.status_code == 200
         except Exception:
             return False
+
+
+def check_llm_ready(model_name: str) -> Tuple[bool, str]:
+    """Checks that the selected provider can answer. Local Ollama is probed for free; a cloud provider
+    gets ONE tiny test request (it counts against your quota)."""
+    from agent.llm_client import LLMQuotaError, get_llm_client, provider_for
+    provider = provider_for(model_name)
+    if provider == "ollama":
+        if check_ollama_reachable():
+            return True, f"Ollama is reachable at {OLLAMA_BASE_URL} (model: {model_name})"
+        return False, f"The local LLM server (Ollama) is unreachable at {OLLAMA_BASE_URL}."
+    try:
+        client, model = get_llm_client(model_name)
+    except ValueError as exc:
+        return False, str(exc)
+    try:
+        client.chat.completions.create(
+            model=model, messages=[{"role": "user", "content": "Reply with the single word OK."}],
+            max_tokens=8, temperature=0,
+        )
+    except LLMQuotaError as exc:
+        return False, f"{provider} is rate-limiting this key right now. {exc}"
+    except Exception as exc:
+        return False, f"{provider} request failed ({type(exc).__name__}): {str(exc)[:200]}"
+    return True, f"{provider} is reachable with model '{model}' (1 test request was used)"
 
 
 def run_bandit_scan(target_dir: str) -> int:
@@ -98,23 +123,47 @@ def main():
     parser.add_argument("--train-limit", type=int, default=0, help="Only the first N train prompts (0 = all)")
     parser.add_argument("--skip-train", action="store_true", help="Reuse an existing trained playbook")
     parser.add_argument("--out", default=os.path.join(current_dir, "results"), help="Output directory")
+    parser.add_argument("--model", default=None,
+                        help="Model name, overrides AEGIS_MODEL: qwen2.5-coder:7b (local), gemini-2.5-flash, "
+                             "openrouter:<model id>, ...")
+    parser.add_argument("--min-interval", type=float, default=None,
+                        help="Minimum seconds between LLM calls (pacing for rate-limited free cloud tiers)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Keep successful rows from an earlier run in --out and only do the rest")
     parser.add_argument("--dry-run-check", action="store_true", help="Check prerequisites and exit")
     args = parser.parse_args()
 
+    if args.model:
+        os.environ["AEGIS_MODEL"] = args.model
+    if args.min_interval is not None:
+        os.environ["AEGIS_LLM_MIN_INTERVAL"] = str(args.min_interval)
+    from agent.llm_client import provider_for
+    model_name = os.environ.get("AEGIS_MODEL", "qwen2.5-coder:7b")
+    provider = provider_for(model_name)
+
     # =========================================================================
-    # LOUD HONESTY CHECK: Refuse to run if Ollama is unreachable
+    # LOUD HONESTY CHECK: refuse to run if the selected LLM is not available
     # =========================================================================
-    if not check_ollama_reachable():
+    ready, detail = check_llm_ready(model_name)
+    if not ready:
         print("\n" + "!" * 80)
         print("[BENCHMARK ABORTED - HONESTY & EMPIRICAL INTEGRITY POLICY]")
-        print(f"The LLM server is unreachable at {OLLAMA_BASE_URL}.")
+        print(detail)
         print("AEGIS strictly forbids fabricating, mocking, or hard-coding benchmark numbers.")
-        print("To run the empirical benchmark:")
-        print("  1. Start Ollama: 'ollama serve'")
-        print("  2. Pull the default model: 'ollama pull qwen2.5-coder:7b'")
-        print("  3. Run: python bench/run_benchmark.py --config ALL --runs 1")
+        if provider == "ollama":
+            print("To run the empirical benchmark:")
+            print("  1. Start Ollama: 'ollama serve'")
+            print("  2. Pull the default model: 'ollama pull qwen2.5-coder:7b'")
+            print("  3. Run: python bench/run_benchmark.py --config ALL --runs 1")
+        else:
+            print("Check the API key environment variable, the exact model id and your quota.")
         print("!" * 80 + "\n")
         sys.exit(1)
+    print(f"LLM check: {detail}")
+    if provider != "ollama":
+        print(f"NOTE: prompts and generated code are sent to {provider}. Free tiers can use them to improve the "
+              "provider's products and have request limits. Results are only comparable with other runs that "
+              "used the same model; report the model next to the numbers.")
 
     configs = list("ABCDE") if args.config == "ALL" else [args.config]
 
@@ -127,7 +176,7 @@ def main():
                f"{core.TARGET_PORT}; stop the IDE's preview server or any other app using it and retry.")
 
     if args.dry_run_check:
-        print("✅ Ollama is reachable, Bandit is installed and the app port is free. Prerequisites satisfied.")
+        print("✅ LLM is reachable, Bandit is installed and the app port is free. Prerequisites satisfied.")
         sys.exit(0)
 
     with open(args.prompts, encoding="utf-8") as fh:
@@ -138,12 +187,16 @@ def main():
           f"held-out limit={args.limit or 'all'} -> {args.out}")
     runner = core.BenchmarkRunner(
         out_dir=args.out, prompts=prompts, configs=configs, runs=args.runs, rounds=args.rounds,
-        limit=args.limit, train_limit=args.train_limit, skip_train=args.skip_train,
+        limit=args.limit, train_limit=args.train_limit, skip_train=args.skip_train, resume=args.resume,
     )
+    quota_error = None
     try:
         records = runner.run()
     except KeyboardInterrupt:
         print("\nInterrupted: partial results were saved.")
+        records = runner.records
+    except core.LLMQuotaError as exc:
+        quota_error = exc
         records = runner.records
 
     if records:
@@ -154,6 +207,14 @@ def main():
         print(f"Results: {runner.csv_path}\n         {os.path.join(args.out, 'results.md')}")
     else:
         print("No rows were produced.")
+
+    if quota_error:
+        print("\n" + "!" * 80)
+        print("[STOPPED: LLM RATE LIMIT / QUOTA]")
+        print(str(quota_error))
+        print("Partial results were saved. Continue later (after the quota resets) with the same command plus --resume.")
+        print("!" * 80)
+        sys.exit(3)
 
 
 if __name__ == "__main__":
