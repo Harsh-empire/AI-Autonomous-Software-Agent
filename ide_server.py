@@ -560,7 +560,7 @@ async def websocket_arena_stream(websocket: WebSocket):
 
                 # 1. Analyze requirements
                 try:
-                    plan = await asyncio.to_thread(analyze_requirements, prompt)
+                    plan = await asyncio.to_thread(analyze_requirements, prompt, client=client, model=resolved_model)
                 except Exception as e:
                     clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', prompt[:25]).strip('_').lower()
                     if not clean_name:
@@ -593,7 +593,7 @@ async def websocket_arena_stream(websocket: WebSocket):
                         "text": f"🛠️ Builder synthesizing: {f_path}..."
                     })
                     try:
-                        code = await asyncio.to_thread(generate_code, f_path, plan)
+                        code = await asyncio.to_thread(generate_code, f_path, plan, client=client, model=resolved_model)
                     except Exception:
                         code = f"# Generated placeholder for {f_path}\n"
 

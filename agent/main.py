@@ -52,7 +52,9 @@ MAX_REPAIR_ATTEMPTS = 3
 # STEP 1: REQUIREMENT ANALYZER
 # ============================================================
 
-def analyze_requirements(project_prompt):
+def analyze_requirements(project_prompt, client=None, model=None):
+    active_client = client if client is not None else globals().get("client")
+    active_model = model if model is not None else globals().get("MODEL")
 
     system_prompt = """
 You are the Requirement Analyzer of an Autonomous Software Development Agent.
@@ -88,8 +90,8 @@ Rules:
 - Return valid JSON only.
 """
 
-    response = client.chat.completions.create(
-        model=MODEL,
+    response = active_client.chat.completions.create(
+        model=active_model,
         messages=[
             {
                 "role": "system",
@@ -201,7 +203,9 @@ def create_project_structure(plan):
 # STEP 4: AI CODE GENERATOR
 # ============================================================
 
-def generate_code(file_path, plan):
+def generate_code(file_path, plan, client=None, model=None):
+    active_client = client if client is not None else globals().get("client")
+    active_model = model if model is not None else globals().get("MODEL")
 
     playbook_prompt = ""
     try:
@@ -248,8 +252,8 @@ Generate the complete contents of:
 {file_path}
 """
 
-    response = client.chat.completions.create(
-        model=MODEL,
+    response = active_client.chat.completions.create(
+        model=active_model,
         messages=[
             {
                 "role": "system",
