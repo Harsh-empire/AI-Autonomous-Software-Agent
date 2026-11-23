@@ -206,7 +206,7 @@ def smoke_test_app(project_dir: str, base_url: str = "http://127.0.0.1:5000") ->
     except Exception as e:
         return False, f"Root endpoint '/' failed to respond: {str(e)}"
 
-    # 2. Extract GET routes from app.py
+    # 2. Extract GET routes and view functions from app.py
     app_file = os.path.join(project_dir, "app.py")
     routes_to_test = []
     view_functions = set()
@@ -241,18 +241,7 @@ def smoke_test_app(project_dir: str, base_url: str = "http://127.0.0.1:5000") ->
         except Exception:
             pass
 
-    for route in routes_to_test:
-        try:
-            url = f"{base_url}{route if route.startswith('/') else '/' + route}"
-            r = session.get(url, timeout=3)
-            if r.status_code == 404:
-                return False, f"Route '{route}' returned 404 Not Found"
-            if r.status_code >= 500:
-                return False, f"Route '{route}' crashed with HTTP {r.status_code}"
-        except Exception as e:
-            return False, f"Route '{route}' failed to respond: {str(e)}"
-
-    # 3. Check templates for url_for endpoint mismatches
+    # 3. Check templates for url_for endpoint mismatches BEFORE hitting routes
     templates_dir = os.path.join(project_dir, "templates")
     if os.path.isdir(templates_dir) and view_functions:
         for t_file in os.listdir(templates_dir):
@@ -265,9 +254,21 @@ def smoke_test_app(project_dir: str, base_url: str = "http://127.0.0.1:5000") ->
                     for ep in url_for_calls:
                         # Exclude static
                         if ep != "static" and ep not in view_functions:
-                            return False, f"Template '{t_file}' references undefined endpoint '{ep}' in url_for()"
+                            return False, f"Template '{t_file}' references undefined endpoint '{ep}' in url_for(). Defined endpoints in app.py: {sorted(list(view_functions))}"
                 except Exception:
                     pass
+
+    # 4. Test routes
+    for route in routes_to_test:
+        try:
+            url = f"{base_url}{route if route.startswith('/') else '/' + route}"
+            r = session.get(url, timeout=3)
+            if r.status_code == 404:
+                return False, f"Route '{route}' returned 404 Not Found"
+            if r.status_code >= 500:
+                return False, f"Route '{route}' crashed with HTTP {r.status_code}"
+        except Exception as e:
+            return False, f"Route '{route}' failed to respond: {str(e)}"
 
     return True, "Smoke tests passed successfully"
 
@@ -370,18 +371,33 @@ def get_log_tail(log_path: str, lines: int = 40) -> str:
 
 def identify_failing_file(project_dir: str, failure_text: str) -> str:
     """Identifies the most likely culprit file from an error message or traceback."""
-    # Look for python files mentioned in traceback
+    # 1. Template error string, e.g. Template 'contact.html' references...
+    tpl_named = re.search(r"Template\s*['\"]([a-zA-Z0-9_\-]+\.html)['\"]", failure_text)
+    if tpl_named:
+        cand = os.path.join(project_dir, "templates", tpl_named.group(1))
+        if os.path.exists(cand):
+            return cand
+
+    # 2. Template file paths in traceback (e.g. templates\contact.html or templates/contact.html)
+    tpl_matches = re.findall(r'(?:templates[/\\]|[/\\]|Template\s*[\'"])([a-zA-Z0-9_\-]+\.html)', failure_text)
+    for tpl in reversed(tpl_matches):
+        cand = os.path.join(project_dir, "templates", tpl)
+        if os.path.exists(cand):
+            return cand
+
+    # 3. BuildError or Jinja error with route name (e.g. Route '/contact' crashed -> templates/contact.html)
+    if "BuildError" in failure_text or "jinja2" in failure_text.lower():
+        route_match = re.search(r"Route\s*['\"]/([a-zA-Z0-9_\-]+)['\"]", failure_text)
+        if route_match:
+            cand = os.path.join(project_dir, "templates", f"{route_match.group(1)}.html")
+            if os.path.exists(cand):
+                return cand
+
+    # 4. Look for python files mentioned in traceback
     py_matches = re.findall(r'File "([^"]+\.py)"', failure_text)
     for m in reversed(py_matches):
         base = os.path.basename(m)
         cand = os.path.join(project_dir, base)
-        if os.path.exists(cand):
-            return cand
-
-    # Look for template mentions (e.g. Template 'index.html' or templates/index.html)
-    tpl_matches = re.findall(r"['\"]([a-zA-Z0-9_\-]+\.html)['\"]", failure_text)
-    for tpl in tpl_matches:
-        cand = os.path.join(project_dir, "templates", tpl)
         if os.path.exists(cand):
             return cand
 
@@ -449,13 +465,24 @@ STRICT REPAIR RULES:
 4. Do not delete essential routes or functionality.
 """
 
+    app_context = ""
+    if file_path.endswith(".html"):
+        project_dir = os.path.dirname(os.path.dirname(file_path)) if "templates" in file_path else os.path.dirname(file_path)
+        app_py = os.path.join(project_dir, "app.py")
+        if os.path.exists(app_py):
+            try:
+                with open(app_py, "r", encoding="utf-8", errors="replace") as af:
+                    app_context = f"\n\nACTUAL DEFINED ROUTES IN app.py (use these exact endpoint names in url_for):\n{af.read()}"
+            except Exception:
+                pass
+
     user_prompt = f"""Target file: {os.path.basename(file_path)}
 
 VERIFICATION FAILURE / TRACEBACK:
 {failure_details}
 
 CURRENT CONTENTS:
-{current_code}
+{current_code}{app_context}
 
 Fix the bug and return the COMPLETE updated file:"""
 

@@ -259,7 +259,7 @@ IMPORTANT RULES:
    - Set SECRET_KEY from os.environ.get('SECRET_KEY', 'dev_default_secret_key_change_in_production').
    - Validate and length-limit ALL user input server-side. On invalid input or missing fields, return HTTP 400 (never crash with 500).
    - Rely strictly on Jinja autoescaping; NEVER use the '|safe' filter on user-controlled input or query parameters.
-   - Ensure every url_for('view_func') endpoint matches an actual view function defined in app.py.
+   - Ensure every url_for('view_func') endpoint matches an actual view function defined in app.py. For example, if the route function is 'def contact():', form actions and links MUST be url_for('contact'), NEVER url_for('submit_contact') or an invented name.
    - If using Flask-SQLAlchemy, initialize models with db.create_all() inside app.app_context().
 7. Requirements and Dependencies:
    - If generating requirements.txt, include exact pinned or compatible packages (e.g. Flask>=2.0.0).
