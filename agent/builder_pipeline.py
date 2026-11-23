@@ -272,6 +272,21 @@ def smoke_test_app(project_dir: str, base_url: str = "http://127.0.0.1:5000") ->
     return True, "Smoke tests passed successfully"
 
 
+def kill_port_listener(port: int = 5000) -> None:
+    """Forcefully kills any process listening on the given port to avoid port conflicts."""
+    if os.name == "nt":
+        try:
+            out = subprocess.check_output(f"netstat -ano | findstr :{port}", shell=True, text=True)
+            for line in out.splitlines():
+                if "LISTENING" in line:
+                    parts = line.strip().split()
+                    pid = parts[-1]
+                    if pid != "0" and int(pid) != os.getpid():
+                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
+        except Exception:
+            pass
+
+
 def start_and_wait_for_server(
     project_dir: str,
     port: int = 5000,
@@ -282,6 +297,9 @@ def start_and_wait_for_server(
     Waits up to timeout_sec for an HTTP response on '/'.
     Returns (success, process, error_or_log_tail).
     """
+    kill_port_listener(port)
+    time.sleep(0.5)
+
     app_file = os.path.join(project_dir, "app.py")
     if not os.path.exists(app_file):
         return False, None, f"Cannot start: {app_file} does not exist"

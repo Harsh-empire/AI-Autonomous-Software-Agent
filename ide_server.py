@@ -49,6 +49,7 @@ from agent.builder_pipeline import (
     rollback_file,
     remove_backup,
     repair_file_with_llm,
+    kill_port_listener,
 )
 
 
@@ -168,11 +169,21 @@ def stop_target_server():
     with target_server_lock:
         if target_server_process and target_server_process.poll() is None:
             try:
-                target_server_process.terminate()
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(target_server_process.pid)], capture_output=True)
+                else:
+                    target_server_process.terminate()
                 target_server_process.wait(timeout=3)
             except Exception:
-                target_server_process.kill()
+                try:
+                    target_server_process.kill()
+                except Exception:
+                    pass
         target_server_process = None
+        try:
+            kill_port_listener(5000)
+        except Exception:
+            pass
 
 
 def restart_target_server(project_dir: str):
