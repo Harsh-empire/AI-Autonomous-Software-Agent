@@ -288,6 +288,50 @@ AEGIS builds upon and compares against recent literature in autonomous agent sec
 
 ---
 
+## Troubleshooting Builds
+
+When building applications autonomously via the Builder AI:
+
+### 1. Slow CPU Inference & Timeouts
+Local LLM generation with models like `qwen2.5-coder:7b` requires compute resources. On CPU, inference may take 1-4 minutes per file.
+- The web IDE streams real-time stage progress, elapsed time, and heartbeats every 5 seconds.
+- Default Ollama read timeout is 300 seconds (configurable via `AEGIS_LLM_TIMEOUT`).
+- If timeouts occur, switch to a faster or smaller quantized model (e.g. `qwen2.5-coder:1.5b` or `qwen2.5-coder:3b`).
+
+### 2. Checking Ollama Daemon & Model Status
+If "Generate & Harden" fails immediately with an unreachable or missing model error:
+```bash
+# Verify the Ollama server is running
+ollama serve
+
+# Check installed models
+ollama list
+
+# Inspect actively loaded models in memory (RAM / VRAM)
+ollama ps
+
+# Pull the default coding model if missing
+ollama pull qwen2.5-coder:7b
+```
+The first request after booting Ollama loads model weights into memory; this warm-up step can take 1-2 minutes on CPU before tokens begin streaming.
+
+### 3. Application Logs & Debugging
+During build and self-repair, target application stdout and stderr are continuously captured to:
+`<project_name>/app.log`
+If an application fails startup verification or smoke testing after 3 repair attempts, the last 40 lines of `app.log` are displayed in the IDE error banner.
+
+### 4. Build Progress Stages Explained
+The builder pipeline executes 7 transparent, verified stages:
+1. `analyze`: Requirement Analyzer transforms the user's prompt into an architectural plan.
+2. `plan`: Validates strict JSON schema, relative file paths, extensions, and prevents folder collisions.
+3. `generate i/N`: Sequentially streams and writes source code files with syntax verification.
+4. `check`: Performs `ast.parse` syntax checks on Python files, Jinja2 template parsing, and checks external dependencies against installed packages.
+5. `start`: Boots the application on `http://127.0.0.1:5000` with output piped to `app.log`.
+6. `smoke`: Executes parameterless HTTP GET requests against `/` and all routes, verifying 200/3xx response classes and checking template `url_for` references.
+7. `repair`: Bounded self-repair loop (up to 3 iterations) that feeds error tracebacks and failing code back to the Builder, checks syntax, keeps `.bak` backups, and rolls back if an edit worsens stability.
+
+---
+
 ## Honest Limitations
 
 1. **Rule-Based Fuzzing Engine:** The Hacker agent executes predefined heuristic payloads across 9 tiers (boundary tests, SQLi strings, XSS script tags, SSTI expressions, traversal sequences). It does not conduct deep symbolic execution, dynamic taint analysis, or multi-step session hijacking.
