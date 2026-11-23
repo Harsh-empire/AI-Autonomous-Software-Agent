@@ -77,6 +77,23 @@ if __name__ == "__main__":
 '''
 
 
+_recorded_requests = []
+_custom_reply_fn = None
+
+
+def set_custom_reply(fn):
+    global _custom_reply_fn
+    _custom_reply_fn = fn
+
+
+def get_recorded_requests():
+    return list(_recorded_requests)
+
+
+def clear_recorded_requests():
+    _recorded_requests.clear()
+
+
 def _reply(messages):
     system = " ".join(m["content"] for m in messages if m["role"] == "system")
     user = " ".join(m["content"] for m in messages if m["role"] == "user")
@@ -84,7 +101,7 @@ def _reply(messages):
         return json.dumps(PLAN)
     if "The Hacker" in system:
         return "Nice try, Builder."
-    if "You are The Builder" in user or "Make the following Flask application secure" in user:
+    if "You are The Builder" in user or "Make the following Flask application secure" in user or "repair" in system.lower() or "repair" in user.lower():
         return SAFE_APP
     if "Generate the complete contents of" in user:
         return INDEX_HTML if "index.html" in user else VULNERABLE_APP
@@ -109,7 +126,26 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         req = json.loads(self.rfile.read(length) or b"{}")
-        content = _reply(req.get("messages", []))
+        _recorded_requests.append(req)
+
+        if _custom_reply_fn is not None:
+            content = _custom_reply_fn(req)
+        else:
+            content = _reply(req.get("messages", []))
+
+        if req.get("stream"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            data = {
+                "id": "stub", "object": "chat.completion.chunk",
+                "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
+            }
+            self.wfile.write(f"data: {json.dumps(data)}\n\n".encode())
+            self.wfile.write(b"data: [DONE]\n\n")
+            return
+
         self._send({
             "id": "stub", "object": "chat.completion", "created": 0, "model": req.get("model", "stub-model"),
             "choices": [{"index": 0, "finish_reason": "stop",
