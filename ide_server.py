@@ -64,6 +64,7 @@ DEFAULT_MODEL = "qwen2.5-coder:7b"
 # Active target server process
 target_server_process = None
 target_server_lock = threading.Lock()
+current_running_project_dir: Optional[str] = None
 
 
 def safe_join(base: str, *parts: str) -> str:
@@ -131,21 +132,36 @@ def resolve_project_dir(project: str) -> str:
 
 def ensure_target_server_running(project_dir: str):
     """Ensures the project's application (Flask or Node) is running on port 5000."""
-    global target_server_process
+    global target_server_process, current_running_project_dir
     with target_server_lock:
+        norm_dir = os.path.normpath(os.path.abspath(project_dir))
         if target_server_process and target_server_process.poll() is None:
-            return
-        
-        app_file = os.path.join(project_dir, "app.py")
-        server_js = os.path.join(project_dir, "server.js")
+            if current_running_project_dir == norm_dir:
+                return
+            # Running a different project! Terminate it.
+            try:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(target_server_process.pid)], capture_output=True)
+                else:
+                    target_server_process.terminate()
+            except Exception:
+                pass
+            target_server_process = None
+            try:
+                kill_port_listener(5000)
+            except Exception:
+                pass
+
+        app_file = os.path.join(norm_dir, "app.py")
+        server_js = os.path.join(norm_dir, "server.js")
         
         cmd = None
         if os.path.exists(app_file):
-            python_exe = find_python_executable(project_dir)
+            python_exe = find_python_executable(norm_dir)
             cmd = [python_exe, "app.py"]
         elif os.path.exists(server_js):
             cmd = ["node", "server.js"]
-        elif os.path.exists(os.path.join(project_dir, "package.json")):
+        elif os.path.exists(os.path.join(norm_dir, "package.json")):
             cmd = ["npm", "start"]
 
         if not cmd:
@@ -154,10 +170,11 @@ def ensure_target_server_running(project_dir: str):
         try:
             target_server_process = subprocess.Popen(
                 cmd,
-                cwd=project_dir,
+                cwd=norm_dir,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
+            current_running_project_dir = norm_dir
             time.sleep(2)
         except Exception as e:
             print(f"Error launching target app: {e}")
@@ -165,7 +182,7 @@ def ensure_target_server_running(project_dir: str):
 
 def stop_target_server():
     """Stops the target application if running."""
-    global target_server_process
+    global target_server_process, current_running_project_dir
     with target_server_lock:
         if target_server_process and target_server_process.poll() is None:
             try:
@@ -180,6 +197,7 @@ def stop_target_server():
                 except Exception:
                     pass
         target_server_process = None
+        current_running_project_dir = None
         try:
             kill_port_listener(5000)
         except Exception:
@@ -386,6 +404,18 @@ async def export_project_zip(project: str = Query("simple_task_management_app"))
     )
 
 
+class SelectProjectRequest(BaseModel):
+    project: str
+
+
+@app.post("/api/select-project")
+async def select_project(req: SelectProjectRequest):
+    """Switches the active project and restarts its application on port 5000."""
+    proj_dir = resolve_project_dir(req.project)
+    restart_target_server(proj_dir)
+    return {"status": "ok", "project": req.project}
+
+
 class ChaosAttackRequest(BaseModel):
     project: str = "simple_task_management_app"
     vector: str = "sql_injection"
@@ -482,7 +512,7 @@ async def delete_playbook_entry(entry_id: str):
 # =============================================================================
 
 async def run_builder_pipeline(websocket: WebSocket, prompt: str, client: Any, resolved_model: str):
-    global target_server_process, active_build
+    global target_server_process, active_build, current_running_project_dir
     start_time = time.time()
     proj_dir = None
     project_title = ""
@@ -757,6 +787,7 @@ async def run_builder_pipeline(websocket: WebSocket, prompt: str, client: Any, r
                 stop_target_server()
                 return
 
+        current_running_project_dir = os.path.normpath(os.path.abspath(proj_dir))
         await websocket.send_json({"type": "project_switched", "project": project_title})
         await websocket.send_json({"type": "server_restart", "url": "http://127.0.0.1:5000"})
         await websocket.send_json({

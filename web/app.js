@@ -876,11 +876,24 @@ document.addEventListener("DOMContentLoaded", () => {
         if (btnRefreshFiles) btnRefreshFiles.addEventListener("click", () => loadFiles(currentProject));
 
         if (projectSelect) {
-            projectSelect.addEventListener("change", () => {
+            projectSelect.addEventListener("change", async () => {
                 currentProject = projectSelect.value;
                 loadFiles(currentProject);
                 loadFileContent(currentProject, "app.py");
                 loadPatchDiff(currentProject);
+                try {
+                    await fetch("/api/select-project", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ project: currentProject })
+                    });
+                    if (appPreviewFrame && appPreviewFrame.hasAttribute("srcdoc")) {
+                        appPreviewFrame.removeAttribute("srcdoc");
+                    }
+                    reloadPreview();
+                } catch (e) {
+                    console.error("Failed to switch project server:", e);
+                }
             });
         }
 

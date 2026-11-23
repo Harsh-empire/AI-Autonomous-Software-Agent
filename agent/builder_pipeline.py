@@ -283,7 +283,7 @@ def kill_port_listener(port: int = 5000) -> None:
                     parts = line.strip().split()
                     pid = parts[-1]
                     if pid != "0" and int(pid) != os.getpid():
-                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
+                        subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, capture_output=True)
         except Exception:
             pass
 
