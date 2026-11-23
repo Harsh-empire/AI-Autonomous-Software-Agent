@@ -16,6 +16,7 @@ import threading
 from typing import List, Dict, Any, Optional
 import zipfile
 import io
+import shutil
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse, Response
@@ -33,8 +34,22 @@ from agent.adversarial_duel import (
 from agent.hacker_suite_generator import scan_flask_endpoints, ADVERSARIAL_PAYLOADS
 from agent.run_adversarial_arena import find_python_executable
 from agent.main import analyze_requirements, create_project_structure, generate_code
-from agent.llm_client import get_llm_client, OLLAMA_BASE_URL
+from agent.llm_client import get_llm_client, OLLAMA_BASE_URL, format_llm_error
 from agent.playbook import PlaybookManager
+from agent.builder_pipeline import (
+    validate_plan,
+    get_unique_project_dir,
+    check_python_syntax,
+    check_jinja_syntax,
+    check_missing_imports,
+    smoke_test_app,
+    start_and_wait_for_server,
+    get_log_tail,
+    identify_failing_file,
+    rollback_file,
+    remove_backup,
+    repair_file_with_llm,
+)
 
 
 app = FastAPI(title="AEGIS Dual-AI Web IDE")
@@ -147,8 +162,8 @@ def ensure_target_server_running(project_dir: str):
             print(f"Error launching target app: {e}")
 
 
-def restart_target_server(project_dir: str):
-    """Restarts the target application."""
+def stop_target_server():
+    """Stops the target application if running."""
     global target_server_process
     with target_server_lock:
         if target_server_process and target_server_process.poll() is None:
@@ -158,7 +173,25 @@ def restart_target_server(project_dir: str):
             except Exception:
                 target_server_process.kill()
         target_server_process = None
+
+
+def restart_target_server(project_dir: str):
+    """Restarts the target application."""
+    stop_target_server()
     ensure_target_server_running(project_dir)
+
+
+class BuildSession:
+    def __init__(self):
+        self.is_running: bool = False
+        self.task: Optional[asyncio.Task] = None
+        self.cancelled: bool = False
+        self.project_dir: Optional[str] = None
+        self.created_files: List[str] = []
+
+
+active_build = BuildSession()
+active_duel_running = False
 
 
 # =============================================================================
@@ -198,6 +231,63 @@ async def get_available_models():
         "cloud": [],
         "selected": ollama_models[0] if ollama_models else "qwen2.5-coder:7b"
     }
+
+
+@app.get("/api/ollama/status")
+async def get_ollama_status(model: Optional[str] = Query(None)):
+    """Health check for Ollama: checks /api/tags (pulled) and /api/ps (loaded)."""
+    base_url = OLLAMA_BASE_URL.replace("/v1", "").rstrip("/")
+    hint = "The first request loads the model into memory and can take several minutes on CPU."
+    try:
+        tags_resp = await asyncio.to_thread(requests.get, f"{base_url}/api/tags", timeout=3)
+        if tags_resp.status_code != 200:
+            return JSONResponse({
+                "online": False,
+                "model_pulled": False,
+                "model_loaded": False,
+                "error": f"Ollama returned HTTP {tags_resp.status_code}",
+                "hint": hint
+            })
+        models_data = tags_resp.json().get("models", [])
+        installed_names = [m.get("name", "") for m in models_data]
+
+        loaded_names = []
+        try:
+            ps_resp = await asyncio.to_thread(requests.get, f"{base_url}/api/ps", timeout=3)
+            if ps_resp.status_code == 200:
+                loaded_models = ps_resp.json().get("models", [])
+                loaded_names = [m.get("name", "") for m in loaded_models]
+        except Exception:
+            pass
+
+        target_model = model or DEFAULT_MODEL
+        def matches_model(target, cand):
+            if not target or not cand:
+                return False
+            t_base = target.split(":")[0]
+            c_base = cand.split(":")[0]
+            return target == cand or t_base == c_base or target in cand or cand in target
+
+        pulled = any(matches_model(target_model, name) for name in installed_names)
+        loaded = any(matches_model(target_model, name) for name in loaded_names)
+
+        return JSONResponse({
+            "online": True,
+            "model": target_model,
+            "model_pulled": pulled,
+            "model_loaded": loaded,
+            "installed_models": installed_names,
+            "loaded_models": loaded_names,
+            "hint": hint
+        })
+    except Exception:
+        return JSONResponse({
+            "online": False,
+            "model_pulled": False,
+            "model_loaded": False,
+            "error": f"Ollama unreachable at {base_url}. Start it with 'ollama serve'.",
+            "hint": hint
+        })
 
 
 @app.get("/api/projects")
@@ -377,6 +467,308 @@ async def delete_playbook_entry(entry_id: str):
 
 
 # =============================================================================
+# BUILDER PIPELINE EXECUTION
+# =============================================================================
+
+async def run_builder_pipeline(websocket: WebSocket, prompt: str, client: Any, resolved_model: str):
+    global target_server_process, active_build
+    start_time = time.time()
+    proj_dir = None
+    project_title = ""
+    current_stage = "analyze"
+    heartbeat_task = None
+
+    async def heartbeat_loop():
+        while True:
+            await asyncio.sleep(5)
+            if not active_build.is_running or active_build.cancelled:
+                break
+            elapsed = round(time.time() - start_time, 1)
+            try:
+                await websocket.send_json({
+                    "type": "heartbeat",
+                    "stage": current_stage,
+                    "elapsed": elapsed,
+                    "text": f"Still generating in stage '{current_stage}' (local CPU inference may take several minutes)..."
+                })
+            except Exception:
+                break
+
+    heartbeat_task = asyncio.create_task(heartbeat_loop())
+
+    try:
+        await websocket.send_json({
+            "type": "speech",
+            "speaker": "BUILDER AI",
+            "text": f"Requirement received: '{prompt}'. Synthesizing software architecture & file layout with {resolved_model}...",
+            "avatar": "🛠️"
+        })
+
+        # STAGE 1: ANALYZE
+        current_stage = "analyze"
+        elapsed = round(time.time() - start_time, 1)
+        await websocket.send_json({
+            "type": "build_progress",
+            "stage": "analyze",
+            "elapsed": elapsed,
+            "text": "Synthesizing software architecture..."
+        })
+
+        try:
+            plan = await asyncio.to_thread(analyze_requirements, prompt, client=client, model=resolved_model)
+        except Exception as exc:
+            err_msg = format_llm_error(exc, resolved_model)
+            await websocket.send_json({"type": "error", "text": err_msg})
+            return
+
+        if active_build.cancelled:
+            return
+
+        # STAGE 2: PLAN VALIDATION & FOLDER SETUP
+        current_stage = "plan"
+        elapsed = round(time.time() - start_time, 1)
+        await websocket.send_json({
+            "type": "build_progress",
+            "stage": "plan",
+            "elapsed": elapsed,
+            "text": "Validating architecture plan..."
+        })
+
+        ok, plan_err = validate_plan(plan)
+        if not ok:
+            await websocket.send_json({
+                "type": "error",
+                "text": f"Plan validation error: {plan_err}"
+            })
+            return
+
+        raw_name = plan.get("project_name", "web_app")
+        project_title = get_unique_project_dir(raw_name, base_dir=current_dir)
+        proj_dir = os.path.join(current_dir, project_title)
+        active_build.project_dir = proj_dir
+
+        # Create project folder structure
+        plan["project_name"] = project_title
+        await asyncio.to_thread(create_project_structure, plan, base_dir=current_dir)
+
+        # Notify UI that folder exists so file tree can switch live
+        await websocket.send_json({
+            "type": "build_folder_created",
+            "project": project_title,
+            "files": plan.get("files", [])
+        })
+
+        # STAGE 3: CODE GENERATION
+        files = plan.get("files", [])
+        total_files = len(files)
+        for idx, f_path in enumerate(files, start=1):
+            if active_build.cancelled:
+                return
+
+            current_stage = f"generate {idx}/{total_files}"
+            elapsed = round(time.time() - start_time, 1)
+            await websocket.send_json({
+                "type": "build_progress",
+                "stage": current_stage,
+                "file": f_path,
+                "elapsed": elapsed,
+                "text": f"Generating {f_path} ({idx}/{total_files})..."
+            })
+
+            try:
+                code = await asyncio.to_thread(generate_code, f_path, plan, client=client, model=resolved_model)
+            except Exception as exc:
+                err_msg = format_llm_error(exc, resolved_model)
+                if proj_dir and os.path.exists(proj_dir):
+                    shutil.rmtree(proj_dir, ignore_errors=True)
+                await websocket.send_json({
+                    "type": "error",
+                    "text": f"Failed generating {f_path}: {err_msg}"
+                })
+                return
+
+            full_dest = os.path.join(proj_dir, f_path)
+            os.makedirs(os.path.dirname(full_dest), exist_ok=True)
+            with open(full_dest, "w", encoding="utf-8") as f_out:
+                f_out.write(code)
+
+            active_build.created_files.append(f_path)
+            await websocket.send_json({
+                "type": "patch",
+                "file": f_path,
+                "project": project_title
+            })
+            await asyncio.sleep(0.1)
+
+        if active_build.cancelled:
+            return
+
+        # STAGE 4: CHECK (Syntax & Missing Imports)
+        current_stage = "check"
+        elapsed = round(time.time() - start_time, 1)
+        await websocket.send_json({
+            "type": "build_progress",
+            "stage": "check",
+            "elapsed": elapsed,
+            "text": "Verifying syntax and dependencies..."
+        })
+
+        for f_path in files:
+            if f_path.endswith(".py"):
+                full_dest = os.path.join(proj_dir, f_path)
+                ok, syn_err = check_python_syntax(full_dest)
+                if not ok:
+                    await websocket.send_json({
+                        "type": "error",
+                        "text": f"Syntax error in generated file '{f_path}': {syn_err}"
+                    })
+                    return
+
+        templates_dir = os.path.join(proj_dir, "templates")
+        if os.path.isdir(templates_dir):
+            for t_file in os.listdir(templates_dir):
+                if t_file.endswith(".html"):
+                    ok, j_err = check_jinja_syntax(os.path.join(templates_dir, t_file))
+                    if not ok:
+                        await websocket.send_json({
+                            "type": "error",
+                            "text": f"Template syntax error in '{t_file}': {j_err}"
+                        })
+                        return
+
+        missing_pkgs = check_missing_imports(proj_dir)
+        if missing_pkgs:
+            await websocket.send_json({
+                "type": "missing_dependencies",
+                "packages": missing_pkgs,
+                "text": f"Build requires packages that are not installed: {', '.join(missing_pkgs)}."
+            })
+            return
+
+        if active_build.cancelled:
+            return
+
+        # STAGE 5 & 6: START & SMOKE TEST
+        current_stage = "start"
+        elapsed = round(time.time() - start_time, 1)
+        await websocket.send_json({
+            "type": "build_progress",
+            "stage": "start",
+            "elapsed": elapsed,
+            "text": "Starting application server..."
+        })
+
+        stop_target_server()
+
+        start_ok, proc, start_err = await asyncio.to_thread(start_and_wait_for_server, proj_dir, 5000, 20.0)
+        needs_repair = False
+        failure_details = ""
+
+        if not start_ok:
+            needs_repair = True
+            failure_details = start_err
+        else:
+            target_server_process = proc
+            current_stage = "smoke"
+            elapsed = round(time.time() - start_time, 1)
+            await websocket.send_json({
+                "type": "build_progress",
+                "stage": "smoke",
+                "elapsed": elapsed,
+                "text": "Running smoke tests on routes..."
+            })
+            smoke_ok, smoke_err = await asyncio.to_thread(smoke_test_app, proj_dir, "http://127.0.0.1:5000")
+            if not smoke_ok:
+                needs_repair = True
+                failure_details = smoke_err
+
+        # STAGE 7: BOUNDED SELF-REPAIR (max 3 iterations)
+        if needs_repair:
+            current_stage = "repair"
+            repair_succeeded = False
+
+            for rep_iter in range(1, 4):
+                if active_build.cancelled:
+                    return
+
+                elapsed = round(time.time() - start_time, 1)
+                await websocket.send_json({
+                    "type": "build_progress",
+                    "stage": "repair",
+                    "iteration": rep_iter,
+                    "max_iterations": 3,
+                    "elapsed": elapsed,
+                    "text": f"Self-repair attempt {rep_iter}/3: {failure_details[:80]}..."
+                })
+
+                target_file = identify_failing_file(proj_dir, failure_details)
+                rep_ok, rep_res = await asyncio.to_thread(
+                    repair_file_with_llm, target_file, failure_details, client, resolved_model
+                )
+
+                if not rep_ok:
+                    failure_details = rep_res
+                    continue
+
+                rel_file = os.path.relpath(target_file, proj_dir).replace("\\", "/")
+                await websocket.send_json({
+                    "type": "patch",
+                    "file": rel_file,
+                    "project": project_title
+                })
+
+                stop_target_server()
+                s_ok, s_proc, s_err = await asyncio.to_thread(start_and_wait_for_server, proj_dir, 5000, 20.0)
+                if not s_ok:
+                    failure_details = s_err
+                    rollback_file(target_file)
+                    continue
+
+                target_server_process = s_proc
+                sm_ok, sm_err = await asyncio.to_thread(smoke_test_app, proj_dir, "http://127.0.0.1:5000")
+                if not sm_ok:
+                    failure_details = sm_err
+                    rollback_file(target_file)
+                    continue
+
+                remove_backup(target_file)
+                repair_succeeded = True
+                needs_repair = False
+                break
+
+            if not repair_succeeded:
+                log_path = os.path.join(proj_dir, "app.log")
+                log_tail = get_log_tail(log_path, lines=40)
+                await websocket.send_json({
+                    "type": "error",
+                    "text": f"Application failed verification after 3 repair attempts: {failure_details}\n\nLast 40 log lines:\n{log_tail}"
+                })
+                stop_target_server()
+                return
+
+        await websocket.send_json({"type": "project_switched", "project": project_title})
+        await websocket.send_json({"type": "server_restart", "url": "http://127.0.0.1:5000"})
+        await websocket.send_json({
+            "type": "speech",
+            "speaker": "BUILDER AI",
+            "text": f"Application '{project_title}' is verified, built and running on port 5000.",
+            "avatar": "🛠️"
+        })
+
+    except asyncio.CancelledError:
+        if proj_dir and os.path.exists(proj_dir):
+            shutil.rmtree(proj_dir, ignore_errors=True)
+    except Exception as exc:
+        err_msg = format_llm_error(exc, resolved_model)
+        await websocket.send_json({"type": "error", "text": err_msg})
+    finally:
+        if heartbeat_task and not heartbeat_task.done():
+            heartbeat_task.cancel()
+        active_build.is_running = False
+        active_build.task = None
+
+
+# =============================================================================
 # WEBSOCKET REAL-TIME ARENA STREAM
 # =============================================================================
 
@@ -390,6 +782,12 @@ async def websocket_arena_stream(websocket: WebSocket):
             action = msg.get("action")
 
             if action == "start_duel":
+                global active_duel_running
+                if active_build.is_running or active_duel_running:
+                    await websocket.send_json({"type": "error", "text": "Another build is running"})
+                    continue
+
+                active_duel_running = True
                 project_name = msg.get("project", "simple_task_management_app")
                 model_name = msg.get("model", DEFAULT_MODEL)
                 rounds = int(msg.get("rounds", 3))
@@ -397,6 +795,7 @@ async def websocket_arena_stream(websocket: WebSocket):
                 try:
                     proj_dir = resolve_project_dir(project_name)
                 except HTTPException as e:
+                    active_duel_running = False
                     await websocket.send_json({"type": "error", "text": f"Project validation error: {e.detail}"})
                     continue
 
@@ -405,6 +804,7 @@ async def websocket_arena_stream(websocket: WebSocket):
                 try:
                     client, resolved_model = get_llm_client(model_name)
                 except Exception as e:
+                    active_duel_running = False
                     await websocket.send_json({
                         "type": "error",
                         "text": f"Model configuration error: {str(e)}"
@@ -536,11 +936,22 @@ async def websocket_arena_stream(websocket: WebSocket):
                         "unresolved": unresolved_count,
                         "text": ("All probes passed: " if unresolved_count == 0 else "Duel finished: ") + summary
                     })
+                active_duel_running = False
 
             elif action == "start_build":
-                prompt = msg.get("prompt", "")
+                if active_build.is_running or active_duel_running:
+                    await websocket.send_json({
+                        "type": "error",
+                        "text": "Another build is running"
+                    })
+                    continue
+
+                prompt = msg.get("prompt", "").strip()
+                if not prompt:
+                    await websocket.send_json({"type": "error", "text": "Build prompt cannot be empty."})
+                    continue
+
                 model_name = msg.get("model", DEFAULT_MODEL)
-                
                 try:
                     client, resolved_model = get_llm_client(model_name)
                 except Exception as e:
@@ -550,72 +961,60 @@ async def websocket_arena_stream(websocket: WebSocket):
                     })
                     continue
 
-                await websocket.send_json({
-                    "type": "speech",
-                    "speaker": "BUILDER AI",
-                    "text": f"Requirement received: '{prompt}'. Synthesizing software architecture & file layout with {resolved_model}...",
-                    "avatar": "🛠️"
-                })
-                await asyncio.sleep(0.5)
+                active_build.is_running = True
+                active_build.cancelled = False
+                active_build.project_dir = None
+                active_build.created_files = []
 
-                # 1. Analyze requirements
-                try:
-                    plan = await asyncio.to_thread(analyze_requirements, prompt, client=client, model=resolved_model)
-                except Exception as e:
-                    clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', prompt[:25]).strip('_').lower()
-                    if not clean_name:
-                        clean_name = "custom_web_app"
-                    plan = {
-                        "project_name": clean_name,
-                        "description": prompt,
-                        "technology_stack": ["Python", "Flask", "HTML", "CSS"],
-                        "dependencies": ["Flask"],
-                        "features": ["Home page", "Catalog & Items", "Cart & Checkout", "Order Confirmation"],
-                        "files": ["app.py", "templates/index.html", "templates/menu.html", "templates/checkout.html", "static/style.css"],
-                        "run_command": "python app.py",
-                        "test_cases": ["Load homepage", "Browse items", "Add to cart", "Submit checkout"]
-                    }
+                # Run build as a background asyncio task so WebSocket loop stays responsive
+                active_build.task = asyncio.create_task(
+                    run_builder_pipeline(websocket, prompt, client, resolved_model)
+                )
 
-                project_title = plan.get("project_name", "web_app")
-                await websocket.send_json({
-                    "type": "info",
-                    "text": f"📋 Architecture synthesized: '{project_title}' ({len(plan.get('files', []))} files)"
-                })
-
-                # 2. Create structure
-                proj_dir = await asyncio.to_thread(create_project_structure, plan)
-                project_name = os.path.basename(proj_dir)
-
-                # 3. Generate source code files
-                for f_path in plan.get("files", []):
+            elif action == "cancel_build":
+                if active_build.is_running:
+                    active_build.cancelled = True
+                    if active_build.task and not active_build.task.done():
+                        active_build.task.cancel()
+                    if active_build.project_dir and os.path.exists(active_build.project_dir):
+                        try:
+                            shutil.rmtree(active_build.project_dir, ignore_errors=True)
+                        except Exception:
+                            pass
+                    active_build.is_running = False
+                    active_build.task = None
+                    await websocket.send_json({
+                        "type": "build_cancelled",
+                        "text": "Build was cancelled. Unfinished project folder discarded."
+                    })
+                else:
                     await websocket.send_json({
                         "type": "info",
-                        "text": f"🛠️ Builder synthesizing: {f_path}..."
+                        "text": "No build is currently running."
                     })
-                    try:
-                        code = await asyncio.to_thread(generate_code, f_path, plan, client=client, model=resolved_model)
-                    except Exception:
-                        code = f"# Generated placeholder for {f_path}\n"
 
-                    full_dest = os.path.join(proj_dir, f_path)
-                    os.makedirs(os.path.dirname(full_dest), exist_ok=True)
-                    with open(full_dest, "w", encoding="utf-8") as f_out:
-                        f_out.write(code)
-
-                    await websocket.send_json({"type": "patch", "file": f_path})
-                    await asyncio.sleep(0.3)
-
-                # 4. Switch project in IDE & Launch preview
-                await asyncio.to_thread(restart_target_server, proj_dir)
-                await websocket.send_json({"type": "project_switched", "project": project_name})
-                await websocket.send_json({"type": "server_restart", "url": "http://127.0.0.1:5000"})
-                
-                await websocket.send_json({
-                    "type": "speech",
-                    "speaker": "BUILDER AI",
-                    "text": f"Application '{project_title}' is built and running on port 5000.",
-                    "avatar": "🛠️"
-                })
+            elif action == "install_dependencies":
+                packages = msg.get("packages", [])
+                if not packages:
+                    await websocket.send_json({"type": "info", "text": "No packages specified for installation."})
+                    continue
+                await websocket.send_json({"type": "info", "text": f"Installing packages: {', '.join(packages)}..."})
+                try:
+                    cmd = [sys.executable, "-m", "pip", "install", *packages]
+                    res = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=120)
+                    if res.returncode == 0:
+                        await websocket.send_json({
+                            "type": "dependencies_installed",
+                            "packages": packages,
+                            "text": f"Successfully installed: {', '.join(packages)}."
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "text": f"Failed to install packages: {res.stderr}"
+                        })
+                except Exception as exc:
+                    await websocket.send_json({"type": "error", "text": f"Installation error: {str(exc)}"})
 
     except WebSocketDisconnect:
         pass

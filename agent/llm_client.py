@@ -293,5 +293,45 @@ def get_llm_client(model_name: str) -> tuple[Any, str]:
 
     # 5. Default: Local Ollama
     else:
-        client = OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
+        timeout_val = float(os.environ.get("AEGIS_LLM_TIMEOUT", "300.0"))
+        client = OpenAI(
+            base_url=OLLAMA_BASE_URL,
+            api_key="ollama",
+            timeout=timeout_val,
+            max_retries=0
+        )
         return client, model_name
+
+
+def format_llm_error(exc: Exception, model_name: str, base_url: str = OLLAMA_BASE_URL) -> str:
+    """Formats an exception from an LLM call into a clear, actionable user message."""
+    err_str = str(exc)
+    err_type = type(exc).__name__
+    clean_url = base_url.replace("/v1", "").rstrip("/")
+
+    # Timeout
+    if "timeout" in err_str.lower() or "timed out" in err_str.lower() or "Timeout" in err_type:
+        return (
+            f"LLM request timed out while generating with model '{model_name}'. "
+            "Local CPU inference can be very slow; try a smaller/quantized model or increase AEGIS_LLM_TIMEOUT."
+        )
+
+    # Unreachable / Connection error
+    if (
+        "connection" in err_str.lower()
+        or "connect" in err_str.lower()
+        or "APIConnectionError" in err_type
+        or "failed to establish" in err_str.lower()
+    ):
+        return f"Ollama unreachable at {clean_url}. Ensure the Ollama daemon is running ('ollama serve')."
+
+    # Model not pulled / 404
+    if "404" in err_str or "not found" in err_str.lower():
+        return f"Model '{model_name}' not pulled: run `ollama pull {model_name}` in your terminal."
+
+    # Invalid JSON / schema error
+    if "invalid json" in err_str.lower() or "json" in err_str.lower():
+        return f"Model returned invalid JSON after 3 attempts: {err_str}"
+
+    return f"Model error ({err_type}): {err_str}"
+

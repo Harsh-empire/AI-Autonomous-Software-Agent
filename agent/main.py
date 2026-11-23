@@ -27,6 +27,11 @@ try:
 except ImportError:
     from adversarial_duel import AdversarialArena
 
+try:
+    from agent.builder_pipeline import validate_plan, check_python_syntax, get_unique_project_dir
+except ImportError:
+    from builder_pipeline import validate_plan, check_python_syntax, get_unique_project_dir
+
 
 
 
@@ -67,47 +72,83 @@ Return ONLY valid JSON.
 The JSON must contain exactly these fields:
 
 {
-    "project_name": "",
-    "description": "",
-    "technology_stack": [],
-    "dependencies": [],
-    "features": [],
-    "files": [],
-    "run_command": "",
-    "test_cases": []
+    "project_name": "example_app",
+    "description": "...",
+    "technology_stack": ["Python", "Flask"],
+    "dependencies": ["Flask"],
+    "features": ["..."],
+    "files": ["app.py", "templates/index.html", "static/style.css", "requirements.txt"],
+    "run_command": "python app.py",
+    "test_cases": ["..."]
 }
 
-Rules:
-- Choose technologies appropriate for the requested project (Python/Flask, or React/Vite/Node if modern JS/React is preferred).
-- Keep the first version fully functional, clean, and runnable immediately.
-- List every important file that must be created (including backend server, frontend components/templates, styling, and database/storage).
-- List all required external dependencies clearly.
-- Give a command that can run the application (e.g., 'python app.py' or 'npm run dev').
-- Give practical test cases.
-- Do not write source code here; define the architecture.
-- For Flask web apps, include all templates and static/style.css files required.
-- For React/Vite/Express web apps, include package.json, server.js (or api routes), and component files.
-- Return valid JSON only.
+STRICT ARCHITECTURAL RULES:
+1. "project_name" MUST be a lowercase slug matching regex ^[a-z0-9_]{3,40}$. No spaces, no uppercase, no dashes.
+2. "files" must be a non-empty list of at most 12 files.
+3. Every file in "files" MUST be a relative path (e.g. 'app.py', 'templates/index.html').
+   NEVER include directory traversal '..', absolute paths, or Windows drive letters.
+4. Allowed file extensions: .py, .html, .css, .js, .txt, .md, .json.
+5. "files" MUST always include 'app.py' and 'requirements.txt'.
+6. Every HTML template that app.py renders with render_template() MUST be explicitly listed in "files".
+7. Flask applications must be configured for:
+   - host="127.0.0.1", port from int(os.environ.get("PORT", 5000)), debug=False.
+   - SECRET_KEY from os.environ.get("SECRET_KEY", ...).
+   - Server-side input validation returning HTTP 400 on error (never 500).
+8. Return ONLY valid JSON, with no markdown fences, no explanatory text.
 """
 
-    response = active_client.chat.completions.create(
-        model=active_model,
-        messages=[
-            {
-                "role": "system",
-                "content": system_prompt
-            },
-            {
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": project_prompt}
+    ]
+
+    last_error = ""
+    for attempt in range(1, 4):
+        # Try passing response_format if supported
+        response = None
+        try:
+            response = active_client.chat.completions.create(
+                model=active_model,
+                messages=messages,
+                temperature=0,
+                response_format={"type": "json_object"}
+            )
+        except (TypeError, Exception):
+            # Fallback for clients or stubs that do not support response_format
+            response = active_client.chat.completions.create(
+                model=active_model,
+                messages=messages,
+                temperature=0
+            )
+
+        content = ""
+        if hasattr(response, "choices") and response.choices:
+            choice = response.choices[0]
+            if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                content = choice.message.content or ""
+            elif isinstance(choice, dict):
+                content = choice.get("message", {}).get("content", "")
+
+        try:
+            plan = clean_json_response(content)
+            ok, err = validate_plan(plan)
+            if not ok:
+                raise ValueError(err)
+            return plan
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt == 3:
+                raise ValueError(f"Model returned invalid JSON after 3 attempts: {last_error}")
+            
+            # Append failed response and critique to prompt history for next retry
+            messages.append({"role": "assistant", "content": content})
+            messages.append({
                 "role": "user",
-                "content": project_prompt
-            }
-        ],
-        temperature=0
-    )
+                "content": f"Your previous response had validation errors:\n{last_error}\n"
+                           "Please correct the plan according to the strict architectural rules and return ONLY valid JSON."
+            })
 
-    content = response.choices[0].message.content.strip()
-
-    return clean_json_response(content)
+    raise ValueError(f"Model returned invalid JSON after 3 attempts: {last_error}")
 
 
 # ============================================================
@@ -115,20 +156,22 @@ Rules:
 # ============================================================
 
 def clean_json_response(content):
-
     content = content.strip()
 
     if content.startswith("```"):
-
         lines = content.splitlines()
-
         if lines and lines[0].startswith("```"):
             lines = lines[1:]
-
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
-
         content = "\n".join(lines).strip()
+
+    # If extra text surrounds JSON, attempt to slice outermost braces
+    if not (content.startswith("{") and content.endswith("}")):
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            content = content[start:end+1]
 
     return json.loads(content)
 
@@ -158,45 +201,21 @@ def save_project_plan(plan):
 # STEP 3: CREATE PROJECT STRUCTURE
 # ============================================================
 
-def create_project_structure(plan):
+def create_project_structure(plan, base_dir=None):
+    from agent.builder_pipeline import get_unique_project_dir
+    project_slug = get_unique_project_dir(plan.get("project_name", "web_app"), base_dir=base_dir)
+    full_project_dir = os.path.join(base_dir, project_slug) if base_dir else project_slug
 
-    project_name = plan["project_name"]
+    os.makedirs(full_project_dir, exist_ok=True)
 
-    project_dir = (
-        project_name
-        .lower()
-        .replace(" ", "_")
-        .replace("-", "_")
-    )
-
-    os.makedirs(
-        project_dir,
-        exist_ok=True
-    )
-
-    for file_path in plan["files"]:
-
-        full_path = os.path.join(
-            project_dir,
-            file_path
-        )
-
-        directory = os.path.dirname(
-            full_path
-        )
-
+    for file_path in plan.get("files", []):
+        full_path = os.path.join(full_project_dir, file_path)
+        directory = os.path.dirname(full_path)
         if directory:
+            os.makedirs(directory, exist_ok=True)
 
-            os.makedirs(
-                directory,
-                exist_ok=True
-            )
-
-    print(
-        f"✅ Project structure created: {project_dir}"
-    )
-
-    return project_dir
+    print(f"✅ Project structure created: {full_project_dir}")
+    return full_project_dir
 
 
 # ============================================================
@@ -228,22 +247,22 @@ PROJECT PLAN:
 {playbook_prompt}
 IMPORTANT RULES:
 
-1. Generate ONLY source code.
-2. Do not use markdown fences.
-3. Do not explain anything.
-4. The generated project must work with the other files.
-6. For Flask applications:
-   - Every route used in HTML forms or links must exist.
-   - Use url_for() whenever practical.
-   - If Flask-SQLAlchemy is used, initialize the database using db.create_all() inside app.app_context().
-   - Do NOT use app.before_first_request (deprecated in Flask 2.3+).
-   - Make authentication and database models consistent.
-7. For JavaScript / React / Express applications:
-   - Ensure package.json defines all required dependencies and start/dev scripts.
-   - Ensure all frontend API fetch routes match the Express / backend routes.
-   - Write clean, modern, responsive CSS/Tailwind designs.
-8. Make sure imported external packages are actually needed.
-9. Generate a runnable and internally consistent implementation with zero placeholders.
+1. Generate ONLY source code. Do not wrap in markdown code blocks.
+2. Do not include markdown fences (```).
+3. Do not explain anything; output raw file content only.
+4. The generated file must be internally consistent with all other files in the plan.
+5. Zero placeholders: write full, working, production-grade logic. Never output '# TODO' or '# Placeholder'.
+6. Flask Application Guidelines:
+   - Always run with debug=False.
+   - Always bind to host='127.0.0.1'.
+   - Read the port from os.environ.get('PORT', 5000), e.g. int(os.environ.get('PORT', 5000)).
+   - Set SECRET_KEY from os.environ.get('SECRET_KEY', 'dev_default_secret_key_change_in_production').
+   - Validate and length-limit ALL user input server-side. On invalid input or missing fields, return HTTP 400 (never crash with 500).
+   - Rely strictly on Jinja autoescaping; NEVER use the '|safe' filter on user-controlled input or query parameters.
+   - Ensure every url_for('view_func') endpoint matches an actual view function defined in app.py.
+   - If using Flask-SQLAlchemy, initialize models with db.create_all() inside app.app_context().
+7. Requirements and Dependencies:
+   - If generating requirements.txt, include exact pinned or compatible packages (e.g. Flask>=2.0.0).
 """
 
     user_prompt = f"""
@@ -252,36 +271,50 @@ Generate the complete contents of:
 {file_path}
 """
 
-    response = active_client.chat.completions.create(
-        model=active_model,
-        messages=[
-            {
-                "role": "system",
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": user_prompt
-            }
-        ],
-        temperature=0.1
-    )
+    last_error = ""
+    for attempt in range(1, 3):
+        try:
+            response = active_client.chat.completions.create(
+                model=active_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1
+            )
 
-    content = response.choices[0].message.content.strip()
+            content = ""
+            if hasattr(response, "choices") and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                    content = choice.message.content or ""
+                elif isinstance(choice, dict):
+                    content = choice.get("message", {}).get("content", "")
 
-    if content.startswith("```"):
+            content = content.strip()
+            if content.startswith("```"):
+                lines = content.splitlines()
+                if lines and lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                content = "\n".join(lines).strip()
 
-        lines = content.splitlines()
+            if not content:
+                raise ValueError("Generated code was empty")
 
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
+            if file_path.endswith(".py"):
+                ok, err = check_python_syntax(file_path, content)
+                if not ok:
+                    raise ValueError(err)
 
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
+            return content
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt == 2:
+                raise RuntimeError(f"Failed to generate file '{file_path}': {last_error}")
 
-        content = "\n".join(lines)
-
-    return content
+    raise RuntimeError(f"Failed to generate file '{file_path}': {last_error}")
 
 
 # ============================================================
