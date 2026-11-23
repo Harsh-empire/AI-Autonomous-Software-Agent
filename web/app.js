@@ -32,6 +32,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const fileTree = document.getElementById("file-tree");
     const promptInput = document.getElementById("prompt-input");
     const btnBuild = document.getElementById("btn-build");
+    const btnCancelBuild = document.getElementById("btn-cancel-build");
+    const buildProgressPanel = document.getElementById("build-progress-panel");
+    const buildCurrentStage = document.getElementById("build-current-stage");
+    const buildElapsedTimer = document.getElementById("build-elapsed-timer");
+    const buildStageMessage = document.getElementById("build-stage-message");
+    const missingDepsBanner = document.getElementById("missing-deps-banner");
+    const missingDepsText = document.getElementById("missing-deps-text");
+    const btnInstallDeps = document.getElementById("btn-install-deps");
+    const buildErrorBanner = document.getElementById("build-error-banner");
+    const buildErrorText = document.getElementById("build-error-text");
+    const buildErrorLogTail = document.getElementById("build-error-log-tail");
+    const ollamaStatusBanner = document.getElementById("ollama-status-banner");
     const btnTriggerDuel = document.getElementById("btn-trigger-duel");
     const btnRefreshFiles = document.getElementById("btn-refresh-files");
     const duelStream = document.getElementById("duel-stream");
@@ -189,6 +201,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.querySelectorAll(".model-picker-sync").forEach(other => {
                     other.value = val;
                 });
+                checkOllamaHealth();
             });
         });
     }
@@ -303,9 +316,71 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
+    function resetBuildUI() {
+        if (btnBuild) btnBuild.disabled = false;
+        if (btnTriggerDuel) btnTriggerDuel.disabled = false;
+        if (btnCancelBuild) btnCancelBuild.style.display = "none";
+        if (buildProgressPanel) buildProgressPanel.style.display = "none";
+    }
+
     function handleWebSocketMessage(msg) {
         if (msg.type === "speech") {
             appendSpeechBubble(msg.speaker, msg.text, msg.avatar);
+        } else if (msg.type === "build_progress") {
+            if (buildProgressPanel) buildProgressPanel.style.display = "block";
+            if (buildCurrentStage) buildCurrentStage.textContent = `Stage: ${msg.stage}`;
+            if (buildElapsedTimer) buildElapsedTimer.textContent = `${msg.elapsed}s`;
+            if (buildStageMessage) buildStageMessage.textContent = msg.text || "";
+
+            const rawStage = (msg.stage || "").toLowerCase();
+            const stageKey = rawStage.split(" ")[0]; // e.g. "generate 1/3" -> "generate"
+            ["analyze", "plan", "generate", "check", "start", "smoke", "repair"].forEach(s => {
+                const el = document.getElementById(`stage-li-${s}`);
+                if (!el) return;
+                if (s === stageKey) {
+                    el.style.color = "#38bdf8";
+                    el.style.fontWeight = "600";
+                    el.textContent = el.textContent.replace(/^[🟢⏳⚪]/, "⏳");
+                } else if (rawStage.includes(s)) {
+                    el.style.color = "#38bdf8";
+                }
+            });
+        } else if (msg.type === "heartbeat") {
+            if (buildElapsedTimer) buildElapsedTimer.textContent = `${msg.elapsed}s`;
+            if (buildStageMessage) buildStageMessage.textContent = msg.text;
+        } else if (msg.type === "build_folder_created") {
+            currentProject = msg.project;
+            loadProjects();
+            loadFiles(currentProject);
+            appendSystemNotice(`📁 Project folder created: '${currentProject}'`);
+        } else if (msg.type === "missing_dependencies") {
+            resetBuildUI();
+            if (missingDepsBanner) {
+                missingDepsBanner.style.display = "block";
+                if (missingDepsText) missingDepsText.textContent = msg.text;
+                if (btnInstallDeps) {
+                    btnInstallDeps.disabled = false;
+                    btnInstallDeps.textContent = "Install into project .venv";
+                    btnInstallDeps.onclick = () => {
+                        btnInstallDeps.disabled = true;
+                        btnInstallDeps.textContent = "Installing dependencies...";
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ action: "install_dependencies", packages: msg.packages }));
+                        }
+                    };
+                }
+            }
+            appendSystemNotice(`⚠️ Missing dependencies detected: ${msg.packages ? msg.packages.join(', ') : ''}`);
+        } else if (msg.type === "dependencies_installed") {
+            if (missingDepsBanner) missingDepsBanner.style.display = "none";
+            appendSystemNotice(`✅ ${msg.text}`);
+        } else if (msg.type === "build_cancelled") {
+            resetBuildUI();
+            if (appPreviewFrame && appPreviewFrame.hasAttribute("srcdoc")) {
+                appPreviewFrame.removeAttribute("srcdoc");
+            }
+            reloadPreview();
+            appendSystemNotice(`🛑 ${msg.text}`);
         } else if (msg.type === "breach") {
             breachCount++;
             if (breachCounter) breachCounter.textContent = `${breachCount} Breach${breachCount > 1 ? 'es' : ''}`;
@@ -321,12 +396,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 loadFileContent(currentProject, activeFile);
             }
         } else if (msg.type === "server_restart") {
+            resetBuildUI();
+            if (appPreviewFrame && appPreviewFrame.hasAttribute("srcdoc")) {
+                appPreviewFrame.removeAttribute("srcdoc");
+            }
             reloadPreview();
         } else if (msg.type === "project_switched") {
+            resetBuildUI();
             currentProject = msg.project;
             loadProjects();
             loadFiles(currentProject);
             loadFileContent(currentProject, "app.py");
+            if (appPreviewFrame && appPreviewFrame.hasAttribute("srcdoc")) {
+                appPreviewFrame.removeAttribute("srcdoc");
+            }
             reloadPreview();
             appendSystemNotice(`📁 Switched active workspace to: '${currentProject}'`);
         } else if (msg.type === "duel_all_verified") {
@@ -337,7 +420,20 @@ document.addEventListener("DOMContentLoaded", () => {
             updateShield(msg.score);
             appendSystemNotice(msg.text || `⚠️ Duel finished. See the security audit for details.`);
         } else if (msg.type === "error") {
+            resetBuildUI();
             appendSystemNotice(`❌ Error: ${msg.text}`);
+            if (buildErrorBanner) {
+                buildErrorBanner.style.display = "block";
+                if (buildErrorText) buildErrorText.textContent = msg.text;
+                if (buildErrorLogTail) {
+                    if (msg.log_tail) {
+                        buildErrorLogTail.style.display = "block";
+                        buildErrorLogTail.textContent = msg.log_tail;
+                    } else {
+                        buildErrorLogTail.style.display = "none";
+                    }
+                }
+            }
         } else if (msg.type === "info") {
             appendSystemNotice(msg.text);
         }
@@ -413,6 +509,36 @@ document.addEventListener("DOMContentLoaded", () => {
     // 5. PROMPT EXECUTION & BUILD PIPELINE
     // =========================================================================
 
+    async function checkOllamaHealth() {
+        if (!ollamaStatusBanner) return;
+        try {
+            const model = getSelectedModel();
+            const res = await fetch(`/api/ollama/status?model=${encodeURIComponent(model)}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data.online) {
+                ollamaStatusBanner.style.display = "block";
+                ollamaStatusBanner.style.background = "#450a0a";
+                ollamaStatusBanner.style.color = "#fca5a5";
+                ollamaStatusBanner.textContent = `⚠️ Ollama is unreachable. Start local daemon with: ollama serve`;
+            } else if (!data.model_pulled) {
+                ollamaStatusBanner.style.display = "block";
+                ollamaStatusBanner.style.background = "#431407";
+                ollamaStatusBanner.style.color = "#fdba74";
+                ollamaStatusBanner.textContent = `⚠️ Model '${model}' not pulled. Run: ollama pull ${model}`;
+            } else if (!data.model_loaded) {
+                ollamaStatusBanner.style.display = "block";
+                ollamaStatusBanner.style.background = "#1e293b";
+                ollamaStatusBanner.style.color = "#93c5fd";
+                ollamaStatusBanner.textContent = `ℹ️ Model '${model}' ready. (First request loads into RAM/VRAM and can take minutes on CPU).`;
+            } else {
+                ollamaStatusBanner.style.display = "none";
+            }
+        } catch {
+            // Ignore network errors in health poll
+        }
+    }
+
     function executeBuildPipeline(prompt) {
         if (!prompt) return;
         
@@ -422,6 +548,29 @@ document.addEventListener("DOMContentLoaded", () => {
         // Switch to Arena tab
         const arenaTabBtn = document.querySelector('[data-tab="arena-view"]');
         if (arenaTabBtn) arenaTabBtn.click();
+
+        // 1. Update UI controls for build state
+        if (btnBuild) btnBuild.disabled = true;
+        if (btnTriggerDuel) btnTriggerDuel.disabled = true;
+        if (btnCancelBuild) btnCancelBuild.style.display = "inline-block";
+        if (buildProgressPanel) buildProgressPanel.style.display = "block";
+        if (buildErrorBanner) buildErrorBanner.style.display = "none";
+        if (missingDepsBanner) missingDepsBanner.style.display = "none";
+
+        // Reset stages list icons
+        ["analyze", "plan", "generate", "check", "start", "smoke", "repair"].forEach(s => {
+            const el = document.getElementById(`stage-li-${s}`);
+            if (el) {
+                el.style.color = "#64748b";
+                el.style.fontWeight = "normal";
+                el.textContent = el.textContent.replace(/^[🟢⏳⚪]/, "⚪");
+            }
+        });
+
+        // Replace stale preview with Building placeholder
+        if (appPreviewFrame) {
+            appPreviewFrame.srcdoc = `<!DOCTYPE html><html><body style="background:#090d16;color:#94a3b8;font-family:sans-serif;height:100vh;margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;"><h2>🔨 Building Application...</h2><p style="color:#64748b;margin-top:8px;">Synthesizing, verifying, and starting server</p></body></html>`;
+        }
 
         appendSpeechBubble("USER", prompt, "👤");
         appendSystemNotice(`🚀 Launching autonomous dual-AI build pipeline for: "${prompt}"...`);
@@ -544,6 +693,15 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
                 executeBuildPipeline(prompt);
+            });
+        }
+
+        // Cancel Build Button
+        if (btnCancelBuild) {
+            btnCancelBuild.addEventListener("click", () => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ action: "cancel_build" }));
+                }
             });
         }
 
@@ -774,6 +932,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setupModelSync();
         connectWebSocket();
         await loadModels();
+        checkOllamaHealth();
         await loadProjects();
         await loadFiles(currentProject);
         await loadFileContent(currentProject, "app.py");

@@ -314,6 +314,9 @@
             </div>
         </header>
 
+        <!-- Ollama Health & Status Banner -->
+        <div id="ollama-status-banner" style="display:none; padding:8px 16px; font-size:12px; font-weight:500; text-align:center; background:#1e293b; border-bottom:1px solid #334155;"></div>
+
         <!-- Main Workspace 3-Column Grid -->
         <main class="workspace-grid">
             <!-- COLUMN 1: Prompt & File Tree -->
@@ -325,10 +328,46 @@
                     </div>
                     <p class="section-desc">Describe requirements to create or modify features:</p>
                     <textarea id="prompt-input" placeholder="e.g. Build a cafe website with checkout and payment options..." rows="4"></textarea>
-                    <button id="btn-build" class="action-btn primary-btn">
-                        <span class="btn-icon">🚀</span>
-                        <span>Generate & Harden</span>
-                    </button>
+                    <div style="display:flex; gap:8px;">
+                        <button id="btn-build" class="action-btn primary-btn" style="flex:1;">
+                            <span class="btn-icon">🚀</span>
+                            <span>Generate & Harden</span>
+                        </button>
+                        <button id="btn-cancel-build" class="action-btn cancel-btn" style="display:none; background:#dc2626; color:#ffffff; padding:0 12px; border:none; border-radius:6px; cursor:pointer;" title="Cancel ongoing build">
+                            <span class="btn-icon">🛑</span>
+                            <span>Cancel</span>
+                        </button>
+                    </div>
+
+                    <!-- Build Progress & Stage List Container -->
+                    <div id="build-progress-panel" class="build-progress-box" style="display:none; margin-top:12px; padding:10px; background:#1e293b; border-radius:6px; border:1px solid #334155; font-size:12px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                            <span id="build-current-stage" style="font-weight:600; color:#38bdf8;">Stage: Idle</span>
+                            <span id="build-elapsed-timer" style="color:#94a3b8;">0.0s</span>
+                        </div>
+                        <div id="build-stage-message" style="color:#cbd5e1; margin-bottom:8px; line-height:1.4;">Waiting...</div>
+                        <ul id="build-stages-list" style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; color:#64748b;">
+                            <li id="stage-li-analyze">⚪ Analyze requirements</li>
+                            <li id="stage-li-plan">⚪ Synthesize architecture plan</li>
+                            <li id="stage-li-generate">⚪ Generate files</li>
+                            <li id="stage-li-check">⚪ Verify syntax & imports</li>
+                            <li id="stage-li-start">⚪ Launch server on :5000</li>
+                            <li id="stage-li-smoke">⚪ Run HTTP smoke tests</li>
+                            <li id="stage-li-repair">⚪ Self-repair (if needed)</li>
+                        </ul>
+                    </div>
+
+                    <!-- Missing Dependencies Notice -->
+                    <div id="missing-deps-banner" style="display:none; margin-top:10px; padding:10px; background:#431407; border:1px solid #ea580c; border-radius:6px; color:#fdba74; font-size:12px;">
+                        <div id="missing-deps-text" style="margin-bottom:8px; font-weight:500;"></div>
+                        <button id="btn-install-deps" style="padding:6px 12px; background:#ea580c; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">Install into project .venv</button>
+                    </div>
+
+                    <!-- Build Error Banner with Log Tail -->
+                    <div id="build-error-banner" style="display:none; margin-top:10px; padding:10px; background:#450a0a; border:1px solid #dc2626; border-radius:6px; color:#fca5a5; font-size:12px;">
+                        <div id="build-error-text" style="font-weight:600; margin-bottom:6px;"></div>
+                        <pre id="build-error-log-tail" style="background:#18181b; padding:8px; border-radius:4px; overflow-x:auto; max-height:160px; font-size:11px; color:#e4e4e7; margin:0;"></pre>
+                    </div>
                 </div>
 
                 <div class="panel-section explorer-box">
