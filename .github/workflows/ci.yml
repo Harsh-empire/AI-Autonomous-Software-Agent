@@ -2,7 +2,7 @@ name: AEGIS CI
 
 on:
   push:
-    branches: [ "main", "hardening" ]
+    branches: [ "**" ]
   pull_request:
     branches: [ "main", "hardening" ]
 

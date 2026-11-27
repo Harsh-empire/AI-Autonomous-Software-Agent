@@ -49,11 +49,22 @@ from agent.builder_pipeline import (
     rollback_file,
     remove_backup,
     repair_file_with_llm,
-    kill_port_listener,
+)
+from agent.security import (
+    allowed_hosts,
+    build_pip_command,
+    free_port,
+    register_own_pid,
+    resolve_install_request,
+    ws_origin_allowed,
 )
 
 
 app = FastAPI(title="AEGIS Dual-AI Web IDE")
+
+# Only answer requests addressed to this machine (blocks DNS-rebinding). Override: AEGIS_ALLOWED_HOSTS.
+from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
 
 # Mount web assets
 web_dir = os.path.join(current_dir, "web")
@@ -147,10 +158,7 @@ def ensure_target_server_running(project_dir: str):
             except Exception:
                 pass
             target_server_process = None
-            try:
-                kill_port_listener(5000)
-            except Exception:
-                pass
+            free_port(5000)  # only stops previews started by this IDE
 
         app_file = os.path.join(norm_dir, "app.py")
         server_js = os.path.join(norm_dir, "server.js")
@@ -174,6 +182,7 @@ def ensure_target_server_running(project_dir: str):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
+            register_own_pid(target_server_process.pid)
             current_running_project_dir = norm_dir
             time.sleep(2)
         except Exception as e:
@@ -198,10 +207,7 @@ def stop_target_server():
                     pass
         target_server_process = None
         current_running_project_dir = None
-        try:
-            kill_port_listener(5000)
-        except Exception:
-            pass
+        free_port(5000)  # only stops previews started by this IDE
 
 
 def restart_target_server(project_dir: str):
@@ -679,6 +685,7 @@ async def run_builder_pipeline(websocket: WebSocket, prompt: str, client: Any, r
 
         missing_pkgs = check_missing_imports(proj_dir)
         if missing_pkgs:
+            websocket.state.offered_missing = set(missing_pkgs)
             await websocket.send_json({
                 "type": "missing_dependencies",
                 "packages": missing_pkgs,
@@ -816,6 +823,11 @@ async def run_builder_pipeline(websocket: WebSocket, prompt: str, client: Any, r
 
 @app.websocket("/ws")
 async def websocket_arena_stream(websocket: WebSocket):
+    # Any web page can open a WebSocket to localhost. Refuse handshakes that do not come from this
+    # server's own pages, otherwise a page you merely visit could drive the IDE (build, run code, install).
+    if not ws_origin_allowed(websocket.headers.get("origin"), websocket.headers.get("host")):
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     try:
         while True:
@@ -1036,24 +1048,34 @@ async def websocket_arena_stream(websocket: WebSocket):
                     })
 
             elif action == "install_dependencies":
-                packages = msg.get("packages", [])
-                if not packages:
-                    await websocket.send_json({"type": "info", "text": "No packages specified for installation."})
+                # Only allowlisted packages that THIS build reported as missing; never raw names, URLs,
+                # paths or pip options taken from the message.
+                offered = getattr(websocket.state, "offered_missing", set())
+                pip_names, rejected = resolve_install_request(msg.get("packages"), offered)
+                for reason in rejected:
+                    await websocket.send_json({"type": "error", "text": f"Install refused: {reason}"})
+                if not pip_names:
+                    if not rejected:
+                        await websocket.send_json({"type": "info", "text": "No packages specified for installation."})
                     continue
-                await websocket.send_json({"type": "info", "text": f"Installing packages: {', '.join(packages)}..."})
+                await websocket.send_json({
+                    "type": "info",
+                    "text": f"Installing binary wheels into the IDE's Python environment: {', '.join(pip_names)}..."
+                })
                 try:
-                    cmd = [sys.executable, "-m", "pip", "install", *packages]
-                    res = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=120)
+                    res = await asyncio.to_thread(subprocess.run, build_pip_command(pip_names),
+                                                  capture_output=True, text=True, timeout=180)
                     if res.returncode == 0:
+                        websocket.state.offered_missing = set()
                         await websocket.send_json({
                             "type": "dependencies_installed",
-                            "packages": packages,
-                            "text": f"Successfully installed: {', '.join(packages)}."
+                            "packages": pip_names,
+                            "text": f"Successfully installed: {', '.join(pip_names)}."
                         })
                     else:
                         await websocket.send_json({
                             "type": "error",
-                            "text": f"Failed to install packages: {res.stderr}"
+                            "text": f"Failed to install packages: {res.stderr[-800:]}"
                         })
                 except Exception as exc:
                     await websocket.send_json({"type": "error", "text": f"Installation error: {str(exc)}"})
