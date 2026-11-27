@@ -34,3 +34,6 @@ playbook/*.json
 # Benchmark runtime results
 bench/results/
 
+# Binaries and downloaded tooling
+cloudflared.exe
+
